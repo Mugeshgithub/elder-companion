@@ -156,7 +156,7 @@ async def respond(pid: int, message: str | None) -> dict:
         reply = intents.DOSE_ADVICE_REPLY_PAUSED if paused else intents.DOSE_ADVICE_REPLY  # never the model's to improvise
     elif not opener and not notify_confirmed and intents.reply_commits_to_note(reply):
         # a promise nobody asked for would be unkept, and recording it would be a false alarm: ask instead
-        reply = "I'm here with you." if paused else "Would you like me to leave a note for your family so they know?"
+        reply = "I'm here with you." if paused else "I'm here with you. Would you like me to leave a note for your family so they know?"
 
     await asyncio.gather(
         working_memory.log_event(pid, "reply", reply, model=model_used),
