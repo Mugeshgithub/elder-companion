@@ -104,7 +104,14 @@ Portal banner: red if any high alert is open, yellow if a check-in is pending or
 - ElevenLabs free tier credits ran out on 2026-10-21. Needs sponsor credits or an upgrade.
 - Every key passed through chat during the build. Rotate them after the hackathon.
 
-## Run it
+## Production (24/7)
+- Backend: Modal app `elder-companion` (`backend/modal_app.py`), one always-on container in the EU, next to the Aiven databases in Frankfurt. Secrets live in the Modal secret `elder-companion`.
+- Frontend: Vercel project `elder-companion`. Settings on Vercel: `ACCESS_CODE`, `AGENT_SHARED_SECRET`, `BACKEND_URL`. The `/api` function adds the secret server-side.
+- The ElevenLabs agent's custom LLM URL is the Modal address plus `/v1`.
+- Postgres goes through one shared pool (`backend/db.py`). A fresh connection to Aiven cost about a second, and a reply used to open four.
+- Do not run the local backend at the same time as Modal: both would listen for silence.
+
+## Run it locally
 ```
 backend:   cd backend && ../.venv/bin/uvicorn main:app --port 8000
 frontend:  cd frontend && npm run dev            # port 4340

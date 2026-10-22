@@ -7,9 +7,12 @@ One container stays alive on purpose. The silence trigger is a Valkey subscripti
 inside the server, so a second copy would raise every inactivity alert twice and scaling to
 zero would stop it listening.
 """
+from pathlib import Path
+
 import modal
 
 APP_DIR = "/root/app"
+BACKEND_DIR = Path(__file__).resolve().parent  # not "." so the folder never depends on where the command is run
 
 image = (
     modal.Image.debian_slim(python_version="3.13")
@@ -18,7 +21,7 @@ image = (
         "uvicorn==0.54.0",
         "anthropic==2.0.0",
         "httpx==0.28.1",
-        "psycopg[binary]==3.3.6",
+        "psycopg[binary,pool]==3.3.6",
         "pgvector==0.5.1",
         "redis==8.1.0",
         "pydantic==2.14.1",
@@ -26,9 +29,9 @@ image = (
     )
     .env({"PYTHONPATH": APP_DIR})
     .add_local_dir(
-        ".",
+        BACKEND_DIR,
         remote_path=APP_DIR,
-        ignore=["__pycache__", "*.pyc", "modal_app.py", "create_agent.py"],
+        ignore=["__pycache__", "*.pyc", "modal_app.py", "create_agent.py", ".env*"],
     )
 )
 
@@ -37,6 +40,7 @@ app = modal.App("elder-companion", image=image)
 
 @app.function(
     secrets=[modal.Secret.from_name("elder-companion")],
+    region="eu",  # next to the Aiven databases in Frankfurt: every query is a short hop instead of an ocean
     min_containers=1,  # keep the Valkey silence listener alive
     max_containers=1,  # and never run two listeners
     timeout=3600,

@@ -5,12 +5,12 @@ from contextlib import asynccontextmanager
 import json
 import time
 
-import psycopg
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import alerts
+import db
 import episodic_memory
 import intents
 import learning
@@ -20,13 +20,13 @@ import llm
 import memory
 import triggers
 import working_memory
-from config import AGENT_SHARED_SECRET, INACTIVITY_SECONDS, PATIENT_TZ, POSTGRES_URI
+from config import AGENT_SHARED_SECRET, INACTIVITY_SECONDS, PATIENT_TZ
 from prompt import CAREGIVER_SYSTEM, CHECKIN_OPENER
 
 
 async def _patient(patient_id: int) -> tuple[str, str, int | None]:
     """name, profile, and this person's own check-in window in seconds (None means the server default)."""
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         cur = await conn.execute(
             "SELECT name, COALESCE(profile, ''), checkin_seconds FROM patients WHERE id = %s", (patient_id,))
         row = await cur.fetchone()
@@ -34,7 +34,7 @@ async def _patient(patient_id: int) -> tuple[str, str, int | None]:
 
 
 async def _patient_name(patient_id: int) -> str:
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         cur = await conn.execute("SELECT name FROM patients WHERE id = %s", (patient_id,))
         row = await cur.fetchone()
     return row[0] if row else "friend"
@@ -59,9 +59,11 @@ def _spawn(coro) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await db.pool.open(wait=True, timeout=30)  # connections are ready before the first request
     task = asyncio.create_task(triggers.listen_for_inactivity(_on_inactive))
     yield
     task.cancel()
+    await db.pool.close()
 
 
 app = FastAPI(title="Elder Companion", lifespan=lifespan)
@@ -92,19 +94,21 @@ async def _on_silence_message(pid: int) -> dict:
 
 
 async def respond(pid: int, message: str | None) -> dict:
-    name, profile, window = await _patient(pid)
     opener = message is None
-    text = CHECKIN_OPENER.format(name=name) if opener else message
     if not opener and textutil.is_filler(message):
         return await _on_silence_message(pid)
 
-    if not opener:
+    if opener:
+        name, profile, window = await _patient(pid)
+        text = CHECKIN_OPENER.format(name=name)
+        ctx = await memory.build_context(pid, text)
+    else:
         cached = await working_memory.cached_reply(pid, message)
         if cached:  # ElevenLabs often repeats the same request
             return {"reply": cached, "model": "cache", "memories_used": 0}
         await working_memory.drop_superseded(pid, message)
-
-    ctx = await memory.build_context(pid, text)
+        text = message
+        (name, profile, window), ctx = await asyncio.gather(_patient(pid), memory.build_context(pid, text))
     if not opener:
         await working_memory.log_event(pid, "recall", message, hits=[
             {"content": m["content"], "category": m["category"], "score": round(m["score"], 2)} for m in ctx["memories"][:4]])
@@ -132,9 +136,11 @@ async def respond(pid: int, message: str | None) -> dict:
         # a promise nobody asked for would be unkept, and recording it would be a false alarm: ask instead
         reply = "Would you like me to leave a note for your family so they know?"
 
-    await working_memory.log_event(pid, "reply", reply, model=model_used)
-    await working_memory.touch_activity(pid, window or INACTIVITY_SECONDS)
-    await working_memory.r.delete(f"patient:{pid}:checkin_pending")
+    await asyncio.gather(
+        working_memory.log_event(pid, "reply", reply, model=model_used),
+        working_memory.touch_activity(pid, window or INACTIVITY_SECONDS),
+        working_memory.r.delete(f"patient:{pid}:checkin_pending"),
+    )
     if not opener:
         await working_memory.add_turn(pid, "user", message)
     await working_memory.add_turn(pid, "assistant", reply)
@@ -153,7 +159,7 @@ async def chat(body: ChatIn):
 
 async def _first_call(patient_id: int) -> bool:
     """True exactly once per setup: flips the flag in the same statement, so two requests cannot both win."""
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         cur = await conn.execute(
             "UPDATE patients SET intro_done = true WHERE id = %s AND NOT intro_done RETURNING id", (patient_id,))
         return await cur.fetchone() is not None
@@ -199,7 +205,7 @@ def _status(alerts_out: list[dict], pending: bool) -> dict:
 async def dashboard(patient_id: int):
     name = await _patient_name(patient_id)
     pending = bool(await working_memory.r.get(f"patient:{patient_id}:checkin_pending"))
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         mem = await (await conn.execute(
             """SELECT content, category, created_at FROM memories
                WHERE patient_id = %s AND source = 'person' AND content !~ '^[^ ]+ said: '
@@ -261,7 +267,7 @@ def _family_facts(s: SetupIn) -> list[tuple[str, str]]:
 
 @app.get("/setup/{patient_id}")
 async def get_setup(patient_id: int):
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         row = await (await conn.execute(
             "SELECT name, COALESCE(profile, ''), setup, checkin_seconds FROM patients WHERE id = %s", (patient_id,))).fetchone()
     if not row:
@@ -276,7 +282,7 @@ async def get_setup(patient_id: int):
 async def save_setup(patient_id: int, body: SetupIn):
     """Replaces everything the family previously entered. The companion introduces itself again on the next call."""
     secs = body.checkin_minutes * 60 if body.checkin_minutes else None
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         cur = await conn.execute(
             """UPDATE patients SET name = %s, profile = %s, setup = %s::jsonb, checkin_seconds = %s, intro_done = false
                WHERE id = %s""",
@@ -301,7 +307,7 @@ async def inspect(patient_id: int):
     alive, dnd, pending, mood, turns, events = await asyncio.gather(
         r.ttl(f"patient:{pid}:alive"), r.ttl(f"patient:{pid}:dnd"), r.get(f"patient:{pid}:checkin_pending"),
         working_memory.get_mood(pid), working_memory.recent_turns(pid, 8), working_memory.recent_events(pid, 30))
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         total = (await (await conn.execute("SELECT count(*) FROM memories WHERE patient_id = %s", (pid,))).fetchone())[0]
         rows = await (await conn.execute(
             """SELECT content, category, created_at, source FROM memories
@@ -323,7 +329,7 @@ async def inspect(patient_id: int):
 
 @app.post("/alerts/{patient_id}/{alert_id}/resolve")
 async def resolve_alert(patient_id: int, alert_id: int):
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         cur = await conn.execute("UPDATE alerts SET resolved = true WHERE id = %s AND patient_id = %s", (alert_id, patient_id))
         return {"resolved": cur.rowcount == 1}
 

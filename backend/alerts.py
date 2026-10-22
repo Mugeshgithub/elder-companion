@@ -1,7 +1,5 @@
-import psycopg
-
+import db
 import working_memory
-from config import POSTGRES_URI
 
 SEVERITY = {
     "family_notification_request": "high",
@@ -15,7 +13,7 @@ SEVERITY = {
 
 async def raise_alert(patient_id: int, kind: str, detail: str, dedupe_minutes: int = 30) -> bool:
     """Writes an alert unless the same kind is already open. Returns True if a new row was written."""
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         cur = await conn.execute(
             """INSERT INTO alerts (patient_id, kind, detail, severity)
                SELECT %s, %s, %s, %s WHERE NOT EXISTS (

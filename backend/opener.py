@@ -3,10 +3,9 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import psycopg
-
+import db
 import llm
-from config import PATIENT_TZ, POSTGRES_URI
+from config import PATIENT_TZ
 
 log = logging.getLogger("opener")
 
@@ -45,7 +44,7 @@ def _fallback(name: str, proactive: bool, hour: int) -> str:
 
 async def build_opener(patient_id: int, name: str, proactive: bool) -> str:
     local = datetime.now(ZoneInfo(PATIENT_TZ))
-    async with await psycopg.AsyncConnection.connect(POSTGRES_URI) as conn:
+    async with db.pool.connection() as conn:
         cur = await conn.execute(
             """SELECT content FROM memories WHERE patient_id = %s AND source = 'person' AND created_at > now() - interval '24 hours'
                ORDER BY created_at DESC LIMIT 8""", (patient_id,))
