@@ -198,7 +198,7 @@ export default function CaregiverView() {
 
           <section className="rounded-2xl border border-neutral-300 bg-white p-4">
             <h2 className="text-sm font-bold uppercase tracking-wide text-neutral-600">Message for {data?.patient ?? "them"}</h2>
-            <p className="mt-1 text-base text-neutral-600">The companion says it at the start of their next call.</p>
+            <p className="mt-1 text-base text-neutral-600">The companion says it as soon as it is open, or at their next call.</p>
             <label className="mt-3 block text-base font-semibold">
               From
               <input

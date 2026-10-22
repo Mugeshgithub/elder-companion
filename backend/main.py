@@ -51,7 +51,7 @@ async def _on_inactive(patient_id: int) -> None:
         return  # they said goodnight, so silence is expected
     await working_memory.log_event(patient_id, "trigger", "Silence timer expired (Valkey key-expiry event)")
     await alerts.raise_alert(patient_id, "inactivity", "No activity within the check-in window", dedupe_minutes=1)
-    await working_memory.r.set(f"patient:{patient_id}:checkin_pending", "1", ex=3600)
+    await working_memory.r.set(f"patient:{patient_id}:checkin_pending", "1", ex=3600, nx=True)  # never replaces a waiting message
 
 
 _tasks: set[asyncio.Task] = set()
@@ -160,7 +160,7 @@ async def respond(pid: int, message: str | None) -> dict:
     await asyncio.gather(
         working_memory.log_event(pid, "reply", reply, model=model_used),
         working_memory.touch_activity(pid, window or INACTIVITY_SECONDS),
-        working_memory.r.delete(f"patient:{pid}:checkin_pending"),
+        working_memory.clear_checkin(pid),
     )
     if not opener:
         await working_memory.add_turn(pid, "user", message)
@@ -188,8 +188,14 @@ async def _first_call(patient_id: int) -> bool:
 
 
 @app.get("/opener/{patient_id}")
-async def get_opener(patient_id: int, proactive: bool = False):
+async def get_opener(patient_id: int, proactive: bool = False, reason: str = ""):
     name = await _patient_name(patient_id)
+    if proactive and reason == "message":
+        # the companion reached out to pass on a message, not because it was quiet, so it does not say it was
+        waiting = await family.take_messages(patient_id)
+        if waiting:
+            return {"opener": f"Hello {name}. {family.spoken(waiting)}"}
+        proactive = False  # someone already said it, so just greet
     if not proactive and await _first_call(patient_id):
         line = (f"Hello {name}. I'm Memory Lane, an AI voice companion. Your family asked me to keep you company. "
                 "Tell me things you want to remember, and ask me where anything is. I'll check in on you too.")
@@ -211,7 +217,8 @@ async def activity(patient_id: int):
 
 @app.get("/checkin/{patient_id}")
 async def checkin_pending(patient_id: int):
-    return {"pending": bool(await working_memory.r.get(f"patient:{patient_id}:checkin_pending"))}
+    flag = await working_memory.r.get(f"patient:{patient_id}:checkin_pending")
+    return {"pending": bool(flag), "reason": "message" if flag == "message" else "silence"}
 
 
 def _status(alerts_out: list[dict], pending: bool) -> dict:

@@ -281,6 +281,38 @@ async def remove(pid: int, tid: int, request: Request):
     return {"removed": True}
 
 
+# ---------- a message from the family, said by the companion ----------
+
+MAX_MESSAGE = 300
+MESSAGES_PER_HOUR = 10
+
+
+async def relay(chat_id: int, text: str) -> None:
+    """A connected family member typed to the bot. The companion says it to the person, in its own voice."""
+    async with db.pool.connection() as conn:
+        rows = await (await conn.execute(
+            "SELECT t.patient_id, t.name, p.name FROM notify_targets t JOIN patients p ON p.id = t.patient_id WHERE t.chat_id = %s",
+            (chat_id,))).fetchall()
+    if not rows:
+        await send(chat_id, "You are not connected yet. Ask the family owner for a link from the Privacy page.")
+        return
+    if len(text) > MAX_MESSAGE:
+        await send(chat_id, f"That is too long to say aloud. Please keep it under {MAX_MESSAGE} characters.")
+        return
+    r = working_memory.r
+    key = f"notify:chat:{chat_id}:sent"
+    if await r.incr(key) == 1:
+        await r.expire(key, 3600)
+    if int(await r.get(key) or 0) > MESSAGES_PER_HOUR:
+        await send(chat_id, "That is a lot of messages for one hour. Please wait a little.")
+        return
+    for pid, who, patient in rows:
+        await family.add_message(pid, who, text, who)
+        rang = await family.ring(pid)
+        await send(chat_id, f"Saved. {patient} will hear it in a moment if the companion is open, or at the next call."
+                   if rang else f"Saved. {patient} will hear it at the next call.")
+
+
 # ---------- Telegram's call ----------
 
 @hook.post("/telegram/webhook")
@@ -294,6 +326,9 @@ async def webhook(request: Request):
     chat, text = msg.get("chat") or {}, (msg.get("text") or "").strip()
     chat_id = chat.get("id")
     if not chat_id or chat.get("type") != "private":
+        return {"ok": True}
+    if not text:  # a voice note, a photo, a sticker
+        await send(chat_id, "I can only pass on text messages for now. Please type it.")
         return {"ok": True}
 
     if text.startswith("/stop"):
@@ -318,6 +353,8 @@ async def webhook(request: Request):
             await send(chat_id, "That link has expired or was already used. Ask the family owner for a new one.")
     elif text.startswith("/start"):
         await send(chat_id, "Hello. To get Memory Lane alerts here, ask the family owner for a link from the Privacy page, and open it.")
+    elif not text.startswith("/"):
+        await relay(chat_id, text)
     else:
-        await send(chat_id, "I only send alerts. Send /stop to stop them.")
+        await send(chat_id, "Type a message and I will pass it on. Send /stop to stop alerts.")
     return {"ok": True}

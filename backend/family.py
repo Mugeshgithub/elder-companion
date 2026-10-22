@@ -56,17 +56,34 @@ async def leave_message(pid: int, body: MessageIn, request: Request):
     who, text = body.from_name.strip(), body.text.strip()
     if not who or not text:
         return JSONResponse({"detail": "empty message"}, status_code=422)
+    mid = await add_message(pid, who, text, actor_of(request))
+    if mid is None:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return {"id": mid, "reaching_out": await ring(pid)}
+
+
+async def add_message(pid: int, who: str, text: str, actor: str) -> int | None:
+    """Stores a message from the family, so the companion can say it. Used by the portal and by the Telegram bot."""
     async with db.pool.connection() as conn:
         row = await (await conn.execute(
             """INSERT INTO family_messages (patient_id, from_name, text)
                SELECT id, %s, %s FROM patients WHERE id = %s RETURNING id""", (who, text, pid))).fetchone()
     if not row:
-        return JSONResponse({"detail": "not found"}, status_code=404)
+        return None
     # also a memory, so they can ask "did Anna leave me a message?" and get a true answer
     await episodic_memory.save_memory(pid, f"{who} left this message for them: {text}", "message", None, "family")
     await working_memory.log_event(pid, "family_message", f"{who}: {text}")
-    await audit(pid, actor_of(request), "message", f"to be said at the next call, from {who}")
-    return {"id": row[0]}
+    await audit(pid, actor, "message", f"from {who}")
+    return row[0]
+
+
+async def ring(pid: int) -> bool:
+    """Asks the companion to reach out now, so a waiting message is said without waiting for the next call.
+    Not while monitoring is paused, and not while they have said good night: then it waits for the next call."""
+    if await db.is_paused(pid) or await working_memory.r.get(f"patient:{pid}:dnd"):
+        return False
+    await working_memory.r.set(f"patient:{pid}:checkin_pending", "message", ex=3600)
+    return True
 
 
 @router.get("/{pid}/messages")
@@ -88,6 +105,10 @@ async def take_messages(pid: int) -> list[tuple[str, str]]:
                  SELECT id FROM family_messages WHERE patient_id = %s AND delivered_at IS NULL
                  ORDER BY created_at LIMIT 3) RETURNING from_name, text, created_at""", (pid,))
         rows = sorted(await cur.fetchall(), key=lambda r: r[2])
+        left = (await (await conn.execute(
+            "SELECT count(*) FROM family_messages WHERE patient_id = %s AND delivered_at IS NULL", (pid,))).fetchone())[0]
+    if rows and left == 0 and await working_memory.r.get(f"patient:{pid}:checkin_pending") == "message":
+        await working_memory.r.delete(f"patient:{pid}:checkin_pending")  # nothing is waiting, so the companion stops ringing
     return [(n, t) for n, t, _ in rows]
 
 

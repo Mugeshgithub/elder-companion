@@ -118,7 +118,7 @@ export default function PatientView() {
   }, [connected, isSpeaking, getInputVolume, getOutputVolume]);
 
   const starting = useRef(false);
-  const begin = async (proactive = false) => {
+  const begin = async (proactive = false, reason = "") => {
     if (starting.current) return;
     starting.current = true;
     if (proactive) window.memoryLane?.surface(); // the companion is calling: bring the Mac app's window up
@@ -126,7 +126,7 @@ export default function PatientView() {
     if (!proactive) api(`/activity/${PATIENT_ID}`, { method: "POST" }).catch(() => {});
     let line = "";
     try {
-      line = (await (await api(`/opener/${PATIENT_ID}?proactive=${proactive}`)).json()).opener ?? "";
+      line = (await (await api(`/opener/${PATIENT_ID}?proactive=${proactive}${reason === "message" ? "&reason=message" : ""}`)).json()).opener ?? "";
     } catch {
       /* fall back to the plain greeting below */
     }
@@ -166,8 +166,8 @@ export default function PatientView() {
     const t = setInterval(async () => {
       if (connected || connecting || Date.now() - lastEnded.current < CHECKIN_COOLDOWN_MS) return;
       try {
-        const { pending } = await (await api(`/checkin/${PATIENT_ID}`)).json();
-        if (pending) begin(true);
+        const { pending, reason } = await (await api(`/checkin/${PATIENT_ID}`)).json();
+        if (pending) begin(true, reason);
       } catch {
         /* backend briefly unreachable, try again next tick */
       }

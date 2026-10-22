@@ -44,6 +44,13 @@ async def get_mood(patient_id: int) -> str | None:
     return await r.get(_k(patient_id, "mood"))
 
 
+async def clear_checkin(patient_id: int) -> None:
+    """A conversation clears a check-in flag, but never a waiting family message: that still has to be said."""
+    key = _k(patient_id, "checkin_pending")
+    if await r.get(key) != "message":
+        await r.delete(key)
+
+
 async def touch_activity(patient_id: int, ttl: int = INACTIVITY_SECONDS) -> None:
     """Reset the inactivity timer. When this key expires, the trigger listener fires."""
     await r.set(_k(patient_id, "alive"), "1", ex=ttl)

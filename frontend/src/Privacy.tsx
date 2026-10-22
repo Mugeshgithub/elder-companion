@@ -307,6 +307,7 @@ export default function Privacy() {
                     Important alerts reach each connected phone as a message. To keep phones calm: alerts in the same moment become one
                     message, the same kind does not repeat for 30 minutes, there are at most 4 messages an hour, and a serious alert still
                     open after 20 minutes gets one reminder. The portal always shows everything. Anyone can send /stop to the bot to stop.
+                    A connected person can also type a message to the bot, and the companion says it to {name} aloud.
                   </p>
                   <ul className="space-y-2">
                     {notify.targets.length === 0 && <li>No phone is connected yet.</li>}
