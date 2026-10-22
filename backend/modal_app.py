@@ -26,6 +26,7 @@ image = (
         "redis==8.1.0",
         "pydantic==2.14.1",
         "python-dotenv==1.2.4",
+        "pypdf==6.21.2",
     )
     .env({"PYTHONPATH": APP_DIR})
     .add_local_dir(

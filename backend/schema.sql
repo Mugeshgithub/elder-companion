@@ -67,3 +67,37 @@ CREATE TABLE IF NOT EXISTS audit_log (
     at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_patient_time ON audit_log (patient_id, at DESC);
+
+-- medical documents with sources (added 2026-10-22)
+CREATE TABLE IF NOT EXISTS documents (
+    id            BIGSERIAL PRIMARY KEY,
+    patient_id    INT NOT NULL REFERENCES patients(id),
+    filename      TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'processing',   -- processing | ready | failed
+    error         TEXT,
+    doc_type      TEXT,
+    doc_date      DATE,
+    author        TEXT,
+    named_patient TEXT,                                 -- who the document says it is about
+    sha256        TEXT NOT NULL,
+    pages         JSONB NOT NULL,                       -- the text of each page, so a quote can be checked
+    uploaded_by   TEXT NOT NULL,
+    uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (patient_id, sha256)
+);
+CREATE TABLE IF NOT EXISTS document_facts (
+    id          BIGSERIAL PRIMARY KEY,
+    document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    patient_id  INT NOT NULL,
+    kind        TEXT NOT NULL,
+    summary     TEXT NOT NULL,
+    detail      JSONB,
+    page        INT NOT NULL,
+    quote       TEXT NOT NULL,
+    verified    BOOLEAN NOT NULL,                       -- the quote was found, word for word, on that page
+    status      TEXT NOT NULL DEFAULT 'pending',        -- pending | approved | rejected
+    reviewed_by TEXT,
+    reviewed_at TIMESTAMPTZ,
+    memory_id   BIGINT                                  -- the memory the companion reads, once approved
+);
+CREATE INDEX IF NOT EXISTS document_facts_doc ON document_facts (document_id);

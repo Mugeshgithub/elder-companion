@@ -52,6 +52,7 @@ Backend, `backend/`
 Frontend, `frontend/src/`
 - `Deck.tsx`: the slides at `/`, with an Open app button to `/demo`. Public, holds no data
 - `Demo.tsx`: `/demo`, the companion on the left, the memory inspector on the right
+- `Documents.tsx`: `/documents`, upload a PDF and review each finding with its exact quote and page, approve or reject, delete (owner only)
 - `Privacy.tsx`: `/privacy`, consent, pause monitoring, delete what was recorded. States plainly where data goes (Aiven, ElevenLabs, Anthropic, OpenAI)
 - `Setup.tsx`: `/setup`, the family fills this in once: name, private note, daily medicine times, routine, people, usual places, check-in window
 - `Inspector.tsx`: `/inspector`, live Valkey keys and silence timer, a feed of recalls with similarity scores, facts saved, alerts
@@ -76,6 +77,7 @@ Frontend, `frontend/src/`
 - `POST /family/{id}/erase` with `{"confirm":"DELETE"}`: deletes what the companion learned, alerts and messages. The family's setup stays
 - `GET /family/{id}/privacy`, `POST /family/{id}/retention`, `GET /family/{id}/export`: overview, how long data is kept (default 365 days, purged hourly), and a downloadable copy (no embeddings, no code hashes)
 - `POST /family/{id}/members`, `POST /family/{id}/members/{mid}/revoke`, `POST /family/verify`: individual family codes (shown once, only an HMAC is stored), and the check the website's proxy calls (10 wrong codes per client in 15 minutes locks that client out)
+- `POST /family/{id}/documents` (PDF as base64, up to 3 MB), `GET /family/{id}/documents`, `GET /family/{id}/documents/{did}`, `POST /family/{id}/documents/{did}/facts/{fid}` (approve or reject), `POST /family/{id}/documents/{did}/delete`: medical documents with sources. A forced tool call (`record_findings`, strict schema) extracts findings; code checks every quote against the page, and an unverified finding cannot be approved. Only approved medicines, appointments, instructions and contacts become companion memories (`source='document'`), cited by name and date. Diagnoses and test scores are family records the companion never says. Dosing questions get a fixed reply (`intents.asks_dose_advice`)
 - `GET /inspect/{id}`: Valkey keys and silence timer, recent turns, Postgres count and recent facts, the live event feed
 - `POST /alerts/{id}/{alert_id}/resolve`: mark handled
 
@@ -118,6 +120,9 @@ Portal banner: red if any high alert is open, yellow if a check-in is pending or
 - The ElevenLabs agent's custom LLM URL is the Modal address plus `/v1`.
 - Postgres goes through one shared pool (`backend/db.py`). A fresh connection to Aiven cost about a second, and a reply used to open four.
 - Do not run the local backend at the same time as Modal: both would listen for silence.
+
+## Sample documents
+`samples/make_samples.py` writes two FICTIONAL, watermarked PDFs (a memory clinic letter and a prescription) for demos: `python samples/make_samples.py --name Mugesh`. The clinic, doctor and patient are made up. The scripted flow: upload both, approve the medicine and the appointment, then ask the companion "What medicine am I supposed to take in the evening?"
 
 ## Access, privacy and EU rules
 - The Vercel function `frontend/api/proxy.ts` runs in Frankfurt. It checks the access code, then forwards only what that role may use. Owner: everything. Family member (own code): read the portal, mark alerts handled, leave messages, for their one person. It adds the shared secret and an `x-actor` name that the audit log records.

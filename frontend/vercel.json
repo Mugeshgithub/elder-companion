@@ -27,6 +27,10 @@
     {
       "source": "/privacy",
       "destination": "/index.html"
+    },
+    {
+      "source": "/documents",
+      "destination": "/index.html"
     }
   ],
   "regions": [

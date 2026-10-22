@@ -115,6 +115,7 @@ export default function CaregiverView() {
           <h1 className="text-xl font-bold">Family portal</h1>
           <span className="flex min-w-0 items-baseline gap-4">
             <a href="/setup" className="shrink-0 text-base font-medium text-neutral-600 underline underline-offset-4">Set up</a>
+            <a href="/documents" className="shrink-0 text-base font-medium text-neutral-600 underline underline-offset-4">Documents</a>
             <a href="/privacy" className="shrink-0 text-base font-medium text-neutral-600 underline underline-offset-4">Privacy</a>
             <span className="text-base font-medium text-neutral-600 truncate">{data?.patient ?? ""}</span>
           </span>

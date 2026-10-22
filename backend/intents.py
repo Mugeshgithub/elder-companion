@@ -58,3 +58,19 @@ def reply_commits_to_note(reply: str) -> bool:
         ):
             return True
     return False
+
+
+# Questions about taking more, less, double or skipping a medicine. The answer is never the model's to improvise:
+# even "please don't" is medical advice. The reply is fixed and points to the doctor or pharmacist.
+_MED_WORD = re.compile(r"\b(pills?|tablets?|capsules?|doses?|medic\w*|prescri\w*|donepezil|memantine|rivastigmine|galantamine|vitamins?)\b", re.I)
+_DECISION = re.compile(
+    r"\b(double|extra|twice|more|less|skip|stop|miss(?:ed)?|forgot|forgotten|instead|another|too much|overdose|together|same time)\b", re.I)
+_QUESTION = re.compile(
+    r"\b(should i|can i|could i|may i|is it (?:safe|ok|okay)|is that (?:safe|ok|okay)|what if i|do i need to|how much|how many|what happens if)\b", re.I)
+
+DOSE_ADVICE_REPLY = "That is a question for your doctor or pharmacist, so I can't say. Would you like me to leave a note for your family so they can help you ask?"
+DOSE_ADVICE_REPLY_PAUSED = "That is a question for your doctor or pharmacist, so I can't say. Please ask them."
+
+
+def asks_dose_advice(message: str) -> bool:
+    return bool(_MED_WORD.search(message) and _DECISION.search(message) and _QUESTION.search(message))

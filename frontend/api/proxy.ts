@@ -14,6 +14,10 @@ const OWNER = [
   /^alerts\/\d+\/\d+\/resolve$/,
   /^family\/\d+\/(message|messages|summary|consent|pause|erase|privacy|retention|export|members)$/,
   /^family\/\d+\/members\/\d+\/revoke$/,
+  /^family\/\d+\/documents$/,
+  /^family\/\d+\/documents\/\d+$/,
+  /^family\/\d+\/documents\/\d+\/delete$/,
+  /^family\/\d+\/documents\/\d+\/facts\/\d+$/,
 ];
 // A family member (their own code) can read the portal, handle alerts, and leave messages. Nothing else.
 const MEMBER = [/^dashboard\/\d+$/, /^alerts\/\d+\/\d+\/resolve$/, /^family\/\d+\/(message|messages|summary)$/];

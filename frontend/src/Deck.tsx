@@ -119,6 +119,26 @@ const SLIDES: ReactNode[] = [
       <li>Silence never reaches the model and never produces alarming speech.</li>
     </ul>
   </>,
+  // medical documents
+  <>
+    <Title kicker="Medical documents, with sources">It only says what a document says, and shows where</Title>
+    <div className="mt-8 grid gap-5 lg:grid-cols-3">
+      {[
+        ["1. Read", "A forced tool call turns a clinic letter or prescription into structured findings: medicines, appointments, instructions."],
+        ["2. Check", "Every finding must quote the document. Code checks the quote on the page, so a quote that is not there cannot be approved."],
+        ["3. Approve", "The family approves each finding. The companion names its source. Diagnoses and test scores stay a family record."],
+      ].map(([h, p]) => (
+        <div key={h} className="rounded-2xl border border-white/15 bg-white/[0.06] p-5">
+          <p className="text-xl font-semibold text-emerald-300">{h}</p>
+          <p className="mt-2 text-lg text-white/80">{p}</p>
+        </div>
+      ))}
+    </div>
+    <p className="mt-6 max-w-4xl text-lg text-white/75">
+      It never advises on doses. A question like &ldquo;should I take double?&rdquo; gets a fixed answer that points to the doctor or pharmacist,
+      and it never confirms a dose was taken.
+    </p>
+  </>,
   // EU rules
   <>
     <Title kicker="Responsible by design">Built with EU rules in mind. Not certified.</Title>

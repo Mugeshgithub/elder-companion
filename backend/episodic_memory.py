@@ -5,13 +5,14 @@ from embeddings import embed
 
 async def save_memory(
     patient_id: int, content: str, category: str = "conversation", mood: str | None = None, source: str = "person"
-) -> None:
+) -> int:
     vec = await embed(content)
     async with db.pool.connection() as conn:
-        await conn.execute(
-            "INSERT INTO memories (patient_id, content, category, mood, embedding, source) VALUES (%s,%s,%s,%s,%s,%s)",
+        row = await (await conn.execute(
+            "INSERT INTO memories (patient_id, content, category, mood, embedding, source) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
             (patient_id, content, category, mood, vec, source),
-        )
+        )).fetchone()
+        return row[0]
 
 
 async def search_memories(patient_id: int, query: str, k: int = 5, include_family: bool = True) -> list[dict]:

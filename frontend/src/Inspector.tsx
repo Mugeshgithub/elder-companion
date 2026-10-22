@@ -179,7 +179,7 @@ export default function Inspector() {
                 {d.episodic.recent.map((m, i) => (
                   <li key={i} className={`rounded-lg border border-white/10 p-2 ${now - new Date(m.at).getTime() < 8000 ? "flash" : ""}`}>
                     <p className="text-xs text-white/50">
-                      {new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {m.category}{m.source === "family" ? " · from family" : ""}
+                      {new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {m.category}{m.source && m.source !== "person" ? ` · from ${m.source}` : ""}
                     </p>
                     <p className="text-base leading-snug">{m.content}</p>
                   </li>

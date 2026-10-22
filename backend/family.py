@@ -200,7 +200,9 @@ async def erase(pid: int, body: EraseIn, request: Request):
     if body.confirm != "DELETE":
         return JSONResponse({"detail": "type DELETE to confirm"}, status_code=422)
     async with db.pool.connection() as conn:
-        m = await conn.execute("DELETE FROM memories WHERE patient_id = %s AND (source = 'person' OR category = 'message')", (pid,))
+        m = await conn.execute(
+            "DELETE FROM memories WHERE patient_id = %s AND (source IN ('person', 'document') OR category = 'message')", (pid,))
+        await conn.execute("DELETE FROM documents WHERE patient_id = %s", (pid,))  # their findings go with them
         a = await conn.execute("DELETE FROM alerts WHERE patient_id = %s", (pid,))
         f = await conn.execute("DELETE FROM family_messages WHERE patient_id = %s", (pid,))
     keys = [k async for k in working_memory.r.scan_iter(match=f"patient:{pid}:*", count=200)]
@@ -342,6 +344,10 @@ async def export(pid: int, request: Request):
             "SELECT name, created_at, last_seen FROM family_members WHERE patient_id = %s ORDER BY created_at", (pid,))).fetchall()
         trail = await (await conn.execute(
             "SELECT actor, action, detail, at FROM audit_log WHERE patient_id = %s ORDER BY at", (pid,))).fetchall()
+        docs = await (await conn.execute(
+            "SELECT id, filename, doc_type, doc_date, author, named_patient, uploaded_by, uploaded_at, pages FROM documents WHERE patient_id = %s ORDER BY uploaded_at", (pid,))).fetchall()
+        dfacts = await (await conn.execute(
+            "SELECT document_id, kind, summary, page, quote, verified, status, reviewed_by, reviewed_at FROM document_facts WHERE patient_id = %s ORDER BY document_id, id", (pid,))).fetchall()
     iso = lambda t: t.isoformat() if t else None
     await audit(pid, actor_of(request), "export", f"{len(mem)} notes")
     return {
@@ -354,6 +360,11 @@ async def export(pid: int, request: Request):
         "messages": [dict(from_name=n, text=t, at=iso(c), said_at=iso(d)) for n, t, c, d in msgs],
         "family_members": [dict(name=n, added=iso(c), last_seen=iso(s)) for n, c, s in members],
         "audit": [dict(actor=a, action=ac, detail=d, at=iso(t)) for a, ac, d, t in trail],
+        "documents": [dict(
+            filename=fn, type=ty, date=iso(dd), author=au, about=nm, uploaded_by=ub, uploaded_at=iso(ua), text_by_page=pg,
+            findings=[dict(kind=k, summary=s, page=p, quote=q, quote_found_on_page=v, status=st, reviewed_by=rb, reviewed_at=iso(ra))
+                      for (xid, k, s, p, q, v, st, rb, ra) in dfacts if xid == i])
+            for i, fn, ty, dd, au, nm, ub, ua, pg in docs],
     }
 
 

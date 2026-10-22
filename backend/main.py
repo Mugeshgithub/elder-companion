@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 import alerts
 import db
+import documents
 import episodic_memory
 import family
 import intents
@@ -74,6 +75,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Elder Companion", lifespan=lifespan)
 app.include_router(family.router)
+app.include_router(documents.router)
 
 
 @app.middleware("http")
@@ -141,7 +143,9 @@ async def respond(pid: int, message: str | None) -> dict:
     history = [{"role": t["role"], "content": t["text"]} for t in ctx["turns"]]
     reply, model_used = await llm.generate(system, history + [{"role": "user", "content": text}])
 
-    if not opener and not notify_confirmed and intents.reply_commits_to_note(reply):
+    if not opener and intents.asks_dose_advice(message):
+        reply = intents.DOSE_ADVICE_REPLY_PAUSED if paused else intents.DOSE_ADVICE_REPLY  # never the model's to improvise
+    elif not opener and not notify_confirmed and intents.reply_commits_to_note(reply):
         # a promise nobody asked for would be unkept, and recording it would be a false alarm: ask instead
         reply = "I'm here with you." if paused else "Would you like me to leave a note for your family so they know?"
 

@@ -35,6 +35,7 @@ def format_for_prompt(ctx: dict) -> str:
         lines.append("Relevant past memories:")
         lines += [
             f"- (from family, background only) {m['content']}" if m.get("source") == "family"
+            else f"- (medical document, approved by the family) {m['content']}" if m.get("source") == "document"
             else f"- ({_local(m['when']):%a %d %b %H:%M}) {m['content']}"
             for m in ctx["memories"]
         ]
