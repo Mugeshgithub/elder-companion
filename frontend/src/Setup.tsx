@@ -150,7 +150,7 @@ export default function Setup() {
               </label>
             </Section>
 
-            <Section title="Daily medicine" hint="A time here means a dose is due. It is never treated as taken. Only they can say they took it.">
+            <Section title="Daily medicine" hint="At this time the companion rings and reminds them. It never counts a dose as taken unless they say so. If nothing is confirmed after 30 minutes, the family is told.">
               <p className="text-base text-neutral-700">
                 Have a prescription or a clinic letter? <a href="/documents" className="font-semibold underline underline-offset-4">Upload it in Medical documents</a>,
                 approve what it says, and its medicines appear here to add.

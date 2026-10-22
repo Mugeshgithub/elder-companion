@@ -37,7 +37,7 @@ router = APIRouter(prefix="/family")  # the owner's controls, behind the proxy a
 hook = APIRouter()  # Telegram's own call, protected by its secret header instead
 
 # Plain "quiet for a while" notices do not ping anyone. These do.
-PUSH_KINDS = {"family_notification_request", "distress", "missed_medication", "confusion", "no_response"}
+PUSH_KINDS = {"family_notification_request", "distress", "missed_medication", "confusion", "no_response", "left_safe_area"}
 WORDS_KINDS = {"family_notification_request", "distress", "missed_medication", "confusion"}
 KIND_TEXT = {
     "family_notification_request": "asked for their family to be told",
@@ -45,6 +45,7 @@ KIND_TEXT = {
     "missed_medication": "may have missed a dose",
     "confusion": "seemed confused",
     "no_response": "did not answer a check-in call",
+    "left_safe_area": "has left the safe area",
 }
 
 # Pacing, so the family's phones are not flooded. The portal always shows everything.
@@ -141,6 +142,9 @@ async def alert(pid: int, kind: str, detail: str) -> None:
         quotes = [i["detail"] for i in items if words and i["detail"] and i["kind"] in WORDS_KINDS]
         if quotes:
             lines.append(f"They said: \u201c{quotes[0][:300]}\u201d")
+        maps = [i["detail"] for i in items if i["kind"] == "left_safe_area" and str(i["detail"]).startswith("http")]
+        if maps:
+            lines.append(f"Last seen: {maps[0]}")  # the point of this alert is to find them, so the link always goes with it
         if PORTAL:
             lines.append(f"Open the portal: {PORTAL}/caregiver")
         await _deliver(targets, "\n".join(lines))
@@ -358,3 +362,55 @@ async def webhook(request: Request):
     else:
         await send(chat_id, "Type a message and I will pass it on. Send /stop to stop alerts.")
     return {"ok": True}
+
+
+# ---------- the evening digest ----------
+
+DIGEST_AT = "20:00"  # patient local time
+
+
+async def digest_once() -> int:
+    """Once an evening, a short note to everyone connected, so no one has to keep checking. Good news counts too:
+    most families need reassurance as much as alarms. It follows the same privacy switch as alerts."""
+    now = datetime.now(ZoneInfo(PATIENT_TZ))
+    if not TOKEN or now.strftime("%H:%M") != DIGEST_AT:
+        return 0
+    async with db.pool.connection() as conn:
+        ids = [r[0] for r in await (await conn.execute("SELECT DISTINCT patient_id FROM notify_targets")).fetchall()]
+    sent = 0
+    for pid in ids:
+        if await db.is_paused(pid):
+            continue
+        if not await working_memory.r.set(f"notify:{pid}:digest:{now:%Y-%m-%d}", "1", nx=True, ex=26 * 3600):
+            continue  # already sent today
+        found = await _targets(pid)
+        if not found:
+            continue
+        name, words, targets = found
+        s = await family.summary(pid)
+        if isinstance(s, JSONResponse):
+            continue
+        async with db.pool.connection() as conn:
+            open_n = (await (await conn.execute("SELECT count(*) FROM alerts WHERE patient_id = %s AND NOT resolved", (pid,))).fetchone())[0]
+        busy = s["notes"] + s["alerts"]
+        if busy == 0:
+            body = "Nothing recorded today. If you expected to hear from them, the companion may not have been open."
+        elif words:
+            body = s["summary"]
+        else:
+            body = (f"{s['notes']} {'note' if s['notes'] == 1 else 'notes'} saved and {s['alerts']} "
+                    f"{'alert' if s['alerts'] == 1 else 'alerts'} today, {open_n} still open.")
+        text = f"Memory Lane, today for {name}:\n{body}" + (f"\nOpen the portal: {PORTAL}/caregiver" if PORTAL else "")
+        await _deliver(targets, text)
+        sent += 1
+    return sent
+
+
+async def digest_loop() -> None:
+    await asyncio.sleep(30)
+    while True:
+        try:
+            await digest_once()
+        except Exception:
+            log.exception("digest pass failed")
+        await asyncio.sleep(30)

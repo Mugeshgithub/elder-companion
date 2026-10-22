@@ -45,6 +45,8 @@ const ACTION: Record<string, string> = {
   notify_words: "changed whether messages include their words",
   notify_test: "sent a test message",
   notify_removed: "removed a phone from alerts",
+  location_home: "set the safe area",
+  location_stopped: "stopped location sharing",
   member_removed: "removed a family member",
   alert_handled: "marked an alert as handled",
 };
@@ -171,6 +173,7 @@ export default function Privacy() {
                 searching notes, and Telegram for phone alerts. They are outside our control and may process data outside the EU. ElevenLabs also keeps its own call
                 transcripts.
               </p>
+              <p>Location sharing is optional. Only the latest position is kept, never a history, and it only works while a page is open on the phone. Stopping deletes it.</p>
               <p>The companion tells people it is an AI. It never gives medical advice, and it does not diagnose.</p>
             </Card>
 

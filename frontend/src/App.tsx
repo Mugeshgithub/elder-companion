@@ -7,6 +7,7 @@ import Inspector from "./Inspector";
 import Setup from "./Setup";
 import Privacy from "./Privacy";
 import Documents from "./Documents";
+import Where from "./Where";
 import { getCode, saveCode } from "./api";
 
 function CodeGate({ retry, onDone }: { retry: boolean; onDone: () => void }) {
@@ -59,5 +60,6 @@ export default function App() {
   if (path.startsWith("/setup")) return <Setup />;
   if (path.startsWith("/privacy")) return <Privacy />;
   if (path.startsWith("/documents")) return <Documents />;
+  if (path.startsWith("/where")) return <Where />;
   return <PatientView />; // /app, the companion on its own, is what the installed Mac app opens
 }

@@ -30,6 +30,7 @@ const KIND: Record<string, { tag: string; tone: string }> = {
   alert: { tag: "ALERT", tone: "bg-red-400/25 text-red-200" },
   trigger: { tag: "VALKEY TRIGGER", tone: "bg-amber-400/25 text-amber-200" },
   setup: { tag: "FAMILY SETUP", tone: "bg-sky-400/20 text-sky-200" },
+  reminder: { tag: "MEDICINE REMINDER", tone: "bg-amber-400/25 text-amber-200" },
 };
 
 const clock = (secs: number) =>

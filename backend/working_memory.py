@@ -47,7 +47,7 @@ async def get_mood(patient_id: int) -> str | None:
 async def clear_checkin(patient_id: int) -> None:
     """A conversation clears a check-in flag, but never a waiting family message: that still has to be said."""
     key = _k(patient_id, "checkin_pending")
-    if await r.get(key) != "message":
+    if await r.get(key) not in ("message", "reminder"):
         await r.delete(key)
 
 

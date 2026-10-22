@@ -126,7 +126,7 @@ export default function PatientView() {
     if (!proactive) api(`/activity/${PATIENT_ID}`, { method: "POST" }).catch(() => {});
     let line = "";
     try {
-      line = (await (await api(`/opener/${PATIENT_ID}?proactive=${proactive}${reason === "message" ? "&reason=message" : ""}`)).json()).opener ?? "";
+      line = (await (await api(`/opener/${PATIENT_ID}?proactive=${proactive}${reason === "message" || reason === "reminder" ? `&reason=${reason}` : ""}`)).json()).opener ?? "";
     } catch {
       /* fall back to the plain greeting below */
     }

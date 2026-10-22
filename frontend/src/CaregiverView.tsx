@@ -10,6 +10,7 @@ type Consent = { by: string; basis: string; at: string } | null;
 type Data = {
   patient: string; status: Status; memories: Memory[]; alerts: Alert[];
   consent: Consent; paused: boolean; messages: Msg[];
+  location?: { home_set: boolean; radius: number | null; sharing: boolean; at: string | null; inside: boolean | null };
 };
 type Summary = { summary: string; notes: number; alerts: number };
 
@@ -20,6 +21,7 @@ const LABEL: Record<string, string> = {
   confusion: "Seemed confused",
   inactivity: "Quiet for a while, check-in started",
   no_response: "Check-in call was not answered",
+  left_safe_area: "Has left the safe area",
 };
 
 const BANNER = {
@@ -133,6 +135,19 @@ export default function CaregiverView() {
           <p className="mt-4 rounded-xl border border-yellow-500 bg-yellow-100 px-4 py-3 text-base font-medium">
             Consent has not been recorded yet.{" "}
             <a href="/privacy" className="underline underline-offset-4">Record it in Privacy</a>
+          </p>
+        )}
+
+        {data?.location && (
+          <p className="mt-3 text-base text-neutral-700">
+            {!data.location.home_set
+              ? "Location: no safe area set."
+              : !data.location.sharing
+                ? "Location: not sharing right now."
+                : data.location.inside === false
+                  ? `Location: OUTSIDE the safe area, seen at ${data.location.at ? clock(data.location.at) : ""}.`
+                  : `Location: inside the safe area, seen at ${data.location.at ? clock(data.location.at) : ""}.`}{" "}
+            <a href="/where" className="font-semibold underline underline-offset-4">Location sharing</a>
           </p>
         )}
 

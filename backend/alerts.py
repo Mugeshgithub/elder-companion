@@ -9,6 +9,7 @@ SEVERITY = {
     "confusion": "medium",
     "inactivity": "normal",
     "no_response": "medium",
+    "left_safe_area": "high",
 }
 
 

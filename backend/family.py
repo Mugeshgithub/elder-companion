@@ -224,6 +224,7 @@ async def erase(pid: int, body: EraseIn, request: Request):
         m = await conn.execute(
             "DELETE FROM memories WHERE patient_id = %s AND (source IN ('person', 'document') OR category = 'message')", (pid,))
         await conn.execute("DELETE FROM documents WHERE patient_id = %s", (pid,))  # their findings go with them
+        await conn.execute("DELETE FROM last_location WHERE patient_id = %s", (pid,))
         a = await conn.execute("DELETE FROM alerts WHERE patient_id = %s", (pid,))
         f = await conn.execute("DELETE FROM family_messages WHERE patient_id = %s", (pid,))
     keys = [k async for k in working_memory.r.scan_iter(match=f"patient:{pid}:*", count=200)]
@@ -365,6 +366,7 @@ async def export(pid: int, request: Request):
             "SELECT name, created_at, last_seen FROM family_members WHERE patient_id = %s ORDER BY created_at", (pid,))).fetchall()
         trail = await (await conn.execute(
             "SELECT actor, action, detail, at FROM audit_log WHERE patient_id = %s ORDER BY at", (pid,))).fetchall()
+        loc = await (await conn.execute("SELECT lat, lng, accuracy, at FROM last_location WHERE patient_id = %s", (pid,))).fetchone()
         targets = await (await conn.execute(
             "SELECT name, created_at FROM notify_targets WHERE patient_id = %s ORDER BY created_at", (pid,))).fetchall()
         docs = await (await conn.execute(
@@ -383,6 +385,7 @@ async def export(pid: int, request: Request):
         "messages": [dict(from_name=n, text=t, at=iso(c), said_at=iso(d)) for n, t, c, d in msgs],
         "family_members": [dict(name=n, added=iso(c), last_seen=iso(s)) for n, c, s in members],
         "phone_alerts": [dict(name=n, connected=iso(c)) for n, c in targets],
+        "last_location": dict(lat=loc[0], lng=loc[1], accuracy=loc[2], at=iso(loc[3])) if loc else None,
         "audit": [dict(actor=a, action=ac, detail=d, at=iso(t)) for a, ac, d, t in trail],
         "documents": [dict(
             filename=fn, type=ty, date=iso(dd), author=au, about=nm, uploaded_by=ub, uploaded_at=iso(ua), text_by_page=pg,

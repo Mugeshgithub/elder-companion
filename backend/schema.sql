@@ -119,3 +119,15 @@ CREATE TABLE IF NOT EXISTS notify_links (
 );
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS notify_words BOOLEAN NOT NULL DEFAULT false;  -- include the person's words in messages
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reminded_at TIMESTAMPTZ;  -- set when the one reminder for an open serious alert was sent
+
+-- location sharing, optional and limited (added 2026-10-22)
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS home_lat DOUBLE PRECISION;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS home_lng DOUBLE PRECISION;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS safe_radius_m INT NOT NULL DEFAULT 300;
+CREATE TABLE IF NOT EXISTS last_location (        -- only the latest position is kept, never a history
+    patient_id INT PRIMARY KEY REFERENCES patients(id),
+    lat        DOUBLE PRECISION NOT NULL,
+    lng        DOUBLE PRECISION NOT NULL,
+    accuracy   REAL,
+    at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -11,9 +11,10 @@ log = logging.getLogger("triggers")
 
 EXPIRED_CHANNEL = "__keyevent@0__:expired"
 ALIVE_KEY = re.compile(r"^patient:(\d+):alive$")
+REMIND_KEY = re.compile(r"^patient:(\d+):(remind|remindcheck):(\d{4})$")  # a medicine reminder, or its check half an hour later
 
 
-async def listen_for_inactivity(on_inactive):
+async def listen_for_inactivity(on_inactive, on_reminder=None):
     """Calls `await on_inactive(patient_id)` whenever a patient's `alive` key expires.
     Reconnects if the connection drops, so the silence trigger never dies quietly."""
     while True:
@@ -30,6 +31,13 @@ async def listen_for_inactivity(on_inactive):
                         await on_inactive(int(m.group(1)))
                     except Exception:
                         log.exception("inactivity handler failed")
+                    continue
+                m = REMIND_KEY.match(msg["data"])
+                if m and on_reminder:
+                    try:
+                        await on_reminder(int(m.group(1)), m.group(2), m.group(3))
+                    except Exception:
+                        log.exception("reminder handler failed")
         except asyncio.CancelledError:
             raise
         except Exception:

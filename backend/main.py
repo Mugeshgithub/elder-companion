@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 import json
+import logging
 import time
 
 from fastapi import FastAPI, Request
@@ -14,7 +15,9 @@ import db
 import documents
 import episodic_memory
 import family
+import location
 import notify
+import reminders
 import intents
 import learning
 import opener
@@ -54,6 +57,10 @@ async def _on_inactive(patient_id: int) -> None:
     await working_memory.r.set(f"patient:{patient_id}:checkin_pending", "1", ex=3600, nx=True)  # never replaces a waiting message
 
 
+async def _on_reminder(patient_id: int, kind: str, compact: str) -> None:
+    await (reminders.fire if kind == "remind" else reminders.check)(patient_id, compact)
+
+
 _tasks: set[asyncio.Task] = set()
 
 
@@ -66,7 +73,12 @@ def _spawn(coro) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.pool.open(wait=True, timeout=30)  # connections are ready before the first request
-    task = asyncio.create_task(triggers.listen_for_inactivity(_on_inactive))
+    try:
+        await reminders.schedule_all()  # make sure every medicine time has its timer
+    except Exception:
+        logging.getLogger("main").exception("could not schedule reminders at start")
+    task = asyncio.create_task(triggers.listen_for_inactivity(_on_inactive, _on_reminder))
+    digest = asyncio.create_task(notify.digest_loop())
     purge = asyncio.create_task(family.purge_loop())
     remind = asyncio.create_task(notify.reminder_loop())
     resume = asyncio.create_task(documents.resume_stuck())
@@ -75,6 +87,7 @@ async def lifespan(app: FastAPI):
     purge.cancel()
     remind.cancel()
     resume.cancel()
+    digest.cancel()
     await db.pool.close()
 
 
@@ -83,6 +96,7 @@ app.include_router(family.router)
 app.include_router(documents.router)
 app.include_router(notify.router)
 app.include_router(notify.hook)
+app.include_router(location.router)
 
 
 @app.middleware("http")
@@ -191,6 +205,11 @@ async def _first_call(patient_id: int) -> bool:
 @app.get("/opener/{patient_id}")
 async def get_opener(patient_id: int, proactive: bool = False, reason: str = ""):
     name = await _patient_name(patient_id)
+    if proactive and reason == "reminder":
+        line = await reminders.opener_line(patient_id, name)
+        if line:
+            return {"opener": line}
+        proactive = False  # the reminder was already taken care of, so just greet
     if proactive and reason == "message":
         # the companion reached out to pass on a message, not because it was quiet, so it does not say it was
         waiting = await family.take_messages(patient_id)
@@ -219,7 +238,7 @@ async def activity(patient_id: int):
 @app.get("/checkin/{patient_id}")
 async def checkin_pending(patient_id: int):
     flag = await working_memory.r.get(f"patient:{patient_id}:checkin_pending")
-    return {"pending": bool(flag), "reason": "message" if flag == "message" else "silence"}
+    return {"pending": bool(flag), "reason": flag if flag in ("message", "reminder") else "silence"}
 
 
 def _status(alerts_out: list[dict], pending: bool) -> dict:
@@ -262,6 +281,7 @@ async def dashboard(patient_id: int):
         "alerts": alerts_out,
         "consent": meta[0] if meta else None,
         "paused": bool(meta and meta[1]),
+        "location": await location.status(patient_id),
         "messages": [dict(id=i, from_name=n, text=t, at=c.isoformat(), delivered_at=d.isoformat() if d else None)
                      for i, n, t, c, d in msgs],
     }
@@ -337,6 +357,7 @@ async def save_setup(patient_id: int, body: SetupIn, request: Request):
         episodic_memory.save_memory(patient_id, text, cat, None, "family") for text, cat in facts])
     await working_memory.log_event(patient_id, "setup", f"Family setup saved: {len(facts)} facts for the companion")
     await family.audit(patient_id, family.actor_of(request), "setup", f"{len(facts)} notes for the companion")
+    await reminders.schedule(patient_id, reset=True)  # medicine times may have changed
     return {"saved": True, "facts": len(facts)}
 
 

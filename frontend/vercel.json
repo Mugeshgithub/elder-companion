@@ -31,6 +31,10 @@
     {
       "source": "/documents",
       "destination": "/index.html"
+    },
+    {
+      "source": "/where",
+      "destination": "/index.html"
     }
   ],
   "regions": [

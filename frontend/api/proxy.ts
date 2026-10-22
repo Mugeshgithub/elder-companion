@@ -6,6 +6,8 @@ declare const process: { env: Record<string, string | undefined> };
 // An owner (the owner code, or the companion's own device) may use everything the screens use.
 const OWNER = [
   /^chat$/, // typing to the companion on the demo page
+  /^location\/\d+$/,
+  /^location\/\d+\/(home|stop)$/,
   /^dashboard\/\d+$/,
   /^inspect\/\d+$/,
   /^opener\/\d+$/,
