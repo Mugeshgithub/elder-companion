@@ -3,15 +3,44 @@ import { api } from "./api";
 import { PATIENT_ID } from "./config";
 
 type Consent = { by: string; basis: string; at: string } | null;
-type Info = { patient: string; consent: Consent; paused: boolean };
+type Member = { id: number; name: string; created_at: string; last_seen: string | null };
+type Entry = { actor: string; action: string; detail: string; at: string };
+type Info = {
+  patient: string;
+  consent: Consent;
+  paused: boolean;
+  retention_days: number | null;
+  members: Member[];
+  audit: Entry[];
+};
 
 // ?patient=99 points the page at the test patient, same as the family portal
 const PID = Number(new URLSearchParams(window.location.search).get("patient")) || PATIENT_ID;
 
 const input = "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-lg text-neutral-900";
+const button = "min-h-11 rounded-lg px-5 text-base font-semibold disabled:opacity-40";
 const BASIS: Record<string, string> = {
   person_agreed: "They agreed to this",
   legal_authority: "Recorded by someone with legal authority to act for them",
+};
+const KEEP: { value: string; label: string }[] = [
+  { value: "30", label: "30 days" },
+  { value: "90", label: "90 days" },
+  { value: "365", label: "1 year" },
+  { value: "forever", label: "Until you delete it" },
+];
+const ACTION: Record<string, string> = {
+  message: "left a message",
+  consent: "recorded consent",
+  pause: "paused monitoring",
+  resume: "resumed monitoring",
+  erase: "deleted what was recorded",
+  setup: "changed the setup",
+  retention: "changed how long data is kept",
+  export: "downloaded a copy of the data",
+  member_added: "added a family member",
+  member_removed: "removed a family member",
+  alert_handled: "marked an alert as handled",
 };
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
@@ -26,24 +55,31 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 export default function Privacy() {
   const [info, setInfo] = useState<Info | null>(null);
+  const [role, setRole] = useState<"owner" | "member" | null>(null);
   const [error, setError] = useState(false);
   const [by, setBy] = useState("");
   const [basis, setBasis] = useState("person_agreed");
   const [typed, setTyped] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newCode, setNewCode] = useState<{ name: string; code: string } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(
-    () =>
-      api(`/dashboard/${PID}`)
-        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-        .then((d: Info) => {
-          setInfo(d);
-          setError(false);
-        })
-        .catch(() => setError(true)),
-    [],
-  );
+  const load = useCallback(async () => {
+    try {
+      // the deployed site says who is signed in; a local dev screen has no such route and is the owner
+      const who = await api("/whoami");
+      const role = who.ok ? (await who.json()).role : "owner";
+      setRole(role);
+      if (role !== "owner") return;
+      const r = await api(`/family/${PID}/privacy`);
+      if (!r.ok) throw new Error(String(r.status));
+      setInfo(await r.json());
+      setError(false);
+    } catch {
+      setError(true);
+    }
+  }, []);
   useEffect(() => {
     load();
   }, [load]);
@@ -58,11 +94,31 @@ export default function Privacy() {
         body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error(String(r.status));
+      const out = await r.json();
       await load();
-      return await r.json();
+      return out;
     } catch {
       setNote("That did not work. Try again.");
       return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const download = async () => {
+    setBusy(true);
+    setNote("");
+    try {
+      const r = await api(`/family/${PID}/export`);
+      if (!r.ok) throw new Error(String(r.status));
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(await r.blob());
+      link.download = `memory-lane-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      await load();
+    } catch {
+      setNote("Could not download. Try again.");
     } finally {
       setBusy(false);
     }
@@ -81,18 +137,30 @@ export default function Privacy() {
         </header>
         {error && !info && <p className="mt-4 text-base font-medium">Cannot reach the server.</p>}
 
-        {info && (
+        {role === "member" && (
+          <div className="mt-4">
+            <Card title="Your access">
+              <p>
+                You can read the portal, mark alerts as handled, and leave messages. Only the owner can change privacy settings,
+                download the data, or delete it.
+              </p>
+            </Card>
+          </div>
+        )}
+
+        {info && role === "owner" && (
           <div className="mt-4 space-y-4">
             <Card title="What is stored">
               <p>
-                What {name} says to the companion, short notes taken from it, alerts, and the setup you entered. It is stored in a
-                database hosted by Aiven in Frankfurt. Nothing is sold.
+                What {name} says to the companion, short notes taken from it, alerts, messages, and the setup you entered. The database
+                and our servers are in the EU. Nothing is sold.
               </p>
               <p>
                 To work, the words are processed by other services: ElevenLabs for speech, Anthropic for the replies, and OpenAI for
-                searching notes. ElevenLabs also keeps its own call transcripts.
+                searching notes. They are outside our control and may process data outside the EU. ElevenLabs also keeps its own call
+                transcripts.
               </p>
-              <p>The companion never gives medical advice, and it does not diagnose. The private note you wrote is never repeated to them.</p>
+              <p>The companion tells people it is an AI. It never gives medical advice, and it does not diagnose.</p>
             </Card>
 
             <Card title="Consent">
@@ -121,9 +189,33 @@ export default function Privacy() {
               <button
                 onClick={() => post("consent", { by: by.trim(), basis })}
                 disabled={busy || !by.trim()}
-                className="min-h-11 rounded-lg bg-neutral-900 px-5 text-base font-semibold text-white disabled:opacity-40"
+                className={`${button} bg-neutral-900 text-white`}
               >
                 {info.consent ? "Record again" : "Record consent"}
+              </button>
+            </Card>
+
+            <Card title="How long to keep it">
+              <p>What {name} says, the alerts, and the messages are deleted automatically after this long.</p>
+              <select
+                aria-label="How long to keep data"
+                className={input}
+                disabled={busy}
+                value={info.retention_days ? String(info.retention_days) : "forever"}
+                onChange={(e) => post("retention", { days: e.target.value === "forever" ? null : Number(e.target.value) })}
+              >
+                {KEEP.map((k) => (
+                  <option key={k.value} value={k.value}>
+                    {k.label}
+                  </option>
+                ))}
+              </select>
+            </Card>
+
+            <Card title="Download a copy">
+              <p>Everything stored about {name}, as a file you keep. Call transcripts held by ElevenLabs are not in it.</p>
+              <button onClick={download} disabled={busy} className={`${button} border border-neutral-900`}>
+                Download a copy
               </button>
             </Card>
 
@@ -136,10 +228,76 @@ export default function Privacy() {
               <button
                 onClick={() => post("pause", { paused: !info.paused })}
                 disabled={busy}
-                className="min-h-11 rounded-lg border border-neutral-900 px-5 text-base font-semibold disabled:opacity-40"
+                className={`${button} border border-neutral-900`}
               >
                 {info.paused ? "Resume monitoring" : "Pause monitoring"}
               </button>
+            </Card>
+
+            <Card title="Family members">
+              <p>
+                Each person gets their own code. They can read the portal, mark alerts as handled, and leave messages. They cannot change
+                settings or delete anything. Remove a code and it stops working within a minute.
+              </p>
+              <ul className="space-y-2">
+                {info.members.length === 0 && <li>No one else has access yet.</li>}
+                {info.members.map((m) => (
+                  <li key={m.id} className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 p-3">
+                    <span>
+                      <span className="font-semibold text-neutral-900">{m.name}</span>
+                      <span className="block text-sm">{m.last_seen ? `Last used ${when(m.last_seen)}` : "Never used"}</span>
+                    </span>
+                    <button
+                      onClick={() => post("members/" + m.id + "/revoke", {})}
+                      disabled={busy}
+                      className={`${button} border border-neutral-400`}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {newCode && (
+                <p className="rounded-lg bg-yellow-100 px-3 py-2 text-neutral-900">
+                  Give {newCode.name} this code. It is shown once and cannot be looked up again:{" "}
+                  <span className="font-mono text-lg font-bold">{newCode.code}</span>
+                </p>
+              )}
+              <div className="flex gap-2">
+                <input
+                  aria-label="Name of the family member"
+                  className={`${input} min-w-0 flex-1`}
+                  placeholder="Name"
+                  value={newName}
+                  maxLength={40}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+                <button
+                  onClick={async () => {
+                    const out = await post("members", { name: newName.trim() });
+                    if (out) {
+                      setNewCode({ name: out.name, code: out.code });
+                      setNewName("");
+                    }
+                  }}
+                  disabled={busy || !newName.trim()}
+                  className={`${button} bg-neutral-900 text-white`}
+                >
+                  Add
+                </button>
+              </div>
+            </Card>
+
+            <Card title="Activity log">
+              <ul className="space-y-2">
+                {info.audit.length === 0 && <li>Nothing yet.</li>}
+                {info.audit.map((a, i) => (
+                  <li key={i} className="text-sm">
+                    <span className="font-semibold text-neutral-900">{a.actor}</span> {ACTION[a.action] ?? a.action}
+                    {a.detail ? `, ${a.detail}` : ""}. {when(a.at)}
+                  </li>
+                ))}
+              </ul>
             </Card>
 
             <Card title="Delete what was recorded">
@@ -161,7 +319,7 @@ export default function Privacy() {
                   }
                 }}
                 disabled={busy || typed !== "DELETE"}
-                className="min-h-11 rounded-lg bg-red-700 px-5 text-base font-semibold text-white disabled:opacity-40"
+                className={`${button} bg-red-700 text-white`}
               >
                 Delete everything recorded
               </button>

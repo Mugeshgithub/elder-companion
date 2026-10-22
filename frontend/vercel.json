@@ -1,11 +1,35 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/proxy?path=:path*" },
-    { "source": "/caregiver", "destination": "/index.html" },
-    { "source": "/demo", "destination": "/index.html" },
-    { "source": "/app", "destination": "/index.html" },
-    { "source": "/inspector", "destination": "/index.html" },
-    { "source": "/setup", "destination": "/index.html" },
-    { "source": "/privacy", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/proxy?path=:path*"
+    },
+    {
+      "source": "/caregiver",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/demo",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/app",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/inspector",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/setup",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/index.html"
+    }
+  ],
+  "regions": [
+    "fra1"
   ]
 }

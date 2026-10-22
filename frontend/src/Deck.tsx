@@ -119,6 +119,34 @@ const SLIDES: ReactNode[] = [
       <li>Silence never reaches the model and never produces alarming speech.</li>
     </ul>
   </>,
+  // EU rules
+  <>
+    <Title kicker="Responsible by design">Built with EU rules in mind. Not certified.</Title>
+    <div className="mt-8 grid gap-5 lg:grid-cols-2">
+      <div className="rounded-2xl border border-emerald-300/40 bg-white/[0.06] p-5">
+        <p className="text-xl font-semibold text-emerald-300">In place</p>
+        <ul className="mt-3 space-y-2 text-lg text-white/80">
+          <li>Database and servers in the EU.</li>
+          <li>Consent recorded: the person agreed, or someone with legal authority did.</li>
+          <li>It says it is an AI, and it never gives medical advice.</li>
+          <li>Pause, download a copy, delete, and automatic expiry.</li>
+          <li>Each family member has their own code, and an activity log shows who did what.</li>
+        </ul>
+      </div>
+      <div className="rounded-2xl border border-amber-300/40 bg-white/[0.06] p-5">
+        <p className="text-xl font-semibold text-amber-300">Still to do</p>
+        <ul className="mt-3 space-y-2 text-lg text-white/80">
+          <li>A data protection impact assessment (GDPR Article 35).</li>
+          <li>Processor agreements with every service we use.</li>
+          <li>Legal review: the basis for health data, capacity to consent, and France&rsquo;s health data hosting rule.</li>
+          <li>Keep the purpose to companionship, so it is not a medical device.</li>
+        </ul>
+      </div>
+    </div>
+    <p className="mt-6 text-base text-white/60 sm:text-lg">
+      GDPR, the EU AI Act and medical device rules all touch this product. This is not legal advice, and nothing here is certified or audited.
+    </p>
+  </>,
   // 7
   <>
     <Title kicker="Where it stands">What is real, and what comes next</Title>

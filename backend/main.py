@@ -65,8 +65,10 @@ def _spawn(coro) -> None:
 async def lifespan(app: FastAPI):
     await db.pool.open(wait=True, timeout=30)  # connections are ready before the first request
     task = asyncio.create_task(triggers.listen_for_inactivity(_on_inactive))
+    purge = asyncio.create_task(family.purge_loop())
     yield
     task.cancel()
+    purge.cancel()
     await db.pool.close()
 
 
@@ -177,7 +179,7 @@ async def _first_call(patient_id: int) -> bool:
 async def get_opener(patient_id: int, proactive: bool = False):
     name = await _patient_name(patient_id)
     if not proactive and await _first_call(patient_id):
-        line = (f"Hello {name}. Your family asked me to keep you company. "
+        line = (f"Hello {name}. I'm Memory Lane, an AI voice companion. Your family asked me to keep you company. "
                 "Tell me things you want to remember, and ask me where anything is. I'll check in on you too.")
     else:
         line = await opener.build_opener(patient_id, name, proactive)
@@ -299,7 +301,7 @@ async def get_setup(patient_id: int):
 
 
 @app.post("/setup/{patient_id}")
-async def save_setup(patient_id: int, body: SetupIn):
+async def save_setup(patient_id: int, body: SetupIn, request: Request):
     """Replaces everything the family previously entered. The companion introduces itself again on the next call."""
     secs = body.checkin_minutes * 60 if body.checkin_minutes else None
     async with db.pool.connection() as conn:
@@ -314,6 +316,7 @@ async def save_setup(patient_id: int, body: SetupIn):
     await asyncio.gather(*[
         episodic_memory.save_memory(patient_id, text, cat, None, "family") for text, cat in facts])
     await working_memory.log_event(patient_id, "setup", f"Family setup saved: {len(facts)} facts for the companion")
+    await family.audit(patient_id, family.actor_of(request), "setup", f"{len(facts)} notes for the companion")
     return {"saved": True, "facts": len(facts)}
 
 
@@ -348,10 +351,13 @@ async def inspect(patient_id: int):
 
 
 @app.post("/alerts/{patient_id}/{alert_id}/resolve")
-async def resolve_alert(patient_id: int, alert_id: int):
+async def resolve_alert(patient_id: int, alert_id: int, request: Request):
     async with db.pool.connection() as conn:
         cur = await conn.execute("UPDATE alerts SET resolved = true WHERE id = %s AND patient_id = %s", (alert_id, patient_id))
-        return {"resolved": cur.rowcount == 1}
+        done = cur.rowcount == 1
+    if done:
+        await family.audit(patient_id, family.actor_of(request), "alert_handled", f"alert {alert_id}")
+    return {"resolved": done}
 
 
 @app.post("/v1/chat/completions")

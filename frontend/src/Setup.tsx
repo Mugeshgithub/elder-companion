@@ -48,6 +48,7 @@ export default function Setup() {
   const [loaded, setLoaded] = useState(false);
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [count, setCount] = useState(0);
+  const [denied, setDenied] = useState(false); // a family member may not change the setup
 
   useEffect(() => {
     api(`/setup/${PID}`)
@@ -64,7 +65,10 @@ export default function Setup() {
         });
         setLoaded(true);
       })
-      .catch(() => setState("error"));
+      .catch((status) => {
+        setDenied(status === 404 || status === 403);
+        setState("error");
+      });
   }, []);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
@@ -112,7 +116,11 @@ export default function Setup() {
         </p>
 
         {!loaded && state !== "error" && <p className="mt-4 text-base text-neutral-600">Loading.</p>}
-        {state === "error" && !loaded && <p className="mt-4 text-base font-medium">Cannot reach the server.</p>}
+        {state === "error" && !loaded && (
+          <p className="mt-4 text-base font-medium">
+            {denied ? "Only the owner can change the setup." : "Cannot reach the server."}
+          </p>
+        )}
 
         {loaded && (
           <div className="mt-4 space-y-4">

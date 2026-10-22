@@ -74,6 +74,8 @@ Frontend, `frontend/src/`
 - `GET/POST /family/{id}/consent`: who confirmed, and on what basis (the person agreed, or legal authority)
 - `POST /family/{id}/pause`: nothing saved, no alerts, no check-in calls
 - `POST /family/{id}/erase` with `{"confirm":"DELETE"}`: deletes what the companion learned, alerts and messages. The family's setup stays
+- `GET /family/{id}/privacy`, `POST /family/{id}/retention`, `GET /family/{id}/export`: overview, how long data is kept (default 365 days, purged hourly), and a downloadable copy (no embeddings, no code hashes)
+- `POST /family/{id}/members`, `POST /family/{id}/members/{mid}/revoke`, `POST /family/verify`: individual family codes (shown once, only an HMAC is stored), and the check the website's proxy calls (10 wrong codes per client in 15 minutes locks that client out)
 - `GET /inspect/{id}`: Valkey keys and silence timer, recent turns, Postgres count and recent facts, the live event feed
 - `POST /alerts/{id}/{alert_id}/resolve`: mark handled
 
@@ -116,6 +118,12 @@ Portal banner: red if any high alert is open, yellow if a check-in is pending or
 - The ElevenLabs agent's custom LLM URL is the Modal address plus `/v1`.
 - Postgres goes through one shared pool (`backend/db.py`). A fresh connection to Aiven cost about a second, and a reply used to open four.
 - Do not run the local backend at the same time as Modal: both would listen for silence.
+
+## Access, privacy and EU rules
+- The Vercel function `frontend/api/proxy.ts` runs in Frankfurt. It checks the access code, then forwards only what that role may use. Owner: everything. Family member (own code): read the portal, mark alerts handled, leave messages, for their one person. It adds the shared secret and an `x-actor` name that the audit log records.
+- Not legal advice, not certified. GDPR (health data is special category), the EU AI Act (it says it is an AI) and medical device rules all touch this product; the stated purpose stays companionship and memory support, with no diagnosis or treatment advice.
+- Still to do outside code: a DPIA (GDPR Art. 35), processor agreements (Aiven, ElevenLabs, Anthropic, OpenAI, Modal, Vercel), legal review (basis for health data, capacity to consent, French health data hosting rule).
+- Known gaps: deleting here cannot delete ElevenLabs's own call transcripts; the model sometimes uses a pronoun for a named person despite the rule.
 
 ## Mac app (menu bar)
 `desktop/` is an Electron app that holds the companion in a small floating window. It loads the live site, so site updates reach it without reinstalling.

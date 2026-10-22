@@ -47,3 +47,23 @@ CREATE TABLE IF NOT EXISTS family_messages (
     delivered_at TIMESTAMPTZ                                                       -- null until the companion has said it
 );
 CREATE INDEX IF NOT EXISTS family_messages_waiting ON family_messages (patient_id) WHERE delivered_at IS NULL;
+
+-- privacy and access (added 2026-10-22)
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS retention_days INT DEFAULT 365;      -- null keeps data until the family deletes it
+CREATE TABLE IF NOT EXISTS family_members (
+    id         BIGSERIAL PRIMARY KEY,
+    patient_id INT NOT NULL REFERENCES patients(id),
+    name       TEXT NOT NULL,
+    code_hash  TEXT NOT NULL UNIQUE,                                               -- the code is shown once and never stored
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen  TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS audit_log (
+    id         BIGSERIAL PRIMARY KEY,
+    patient_id INT,
+    actor      TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_patient_time ON audit_log (patient_id, at DESC);
