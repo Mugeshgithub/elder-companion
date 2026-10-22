@@ -12,7 +12,9 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       proxy: {
         "/api": {
-          target: "http://localhost:8000",
+          // DEV_BACKEND=https://... points the dev screen at the deployed backend, so the local one can stay off
+          target: process.env.DEV_BACKEND ?? "http://localhost:8000",
+          changeOrigin: true,
           rewrite: (p) => p.replace(/^\/api/, ""),
           headers: { "x-api-key": env.AGENT_SHARED_SECRET ?? "" },
         },

@@ -5,6 +5,7 @@
     { "source": "/demo", "destination": "/index.html" },
     { "source": "/app", "destination": "/index.html" },
     { "source": "/inspector", "destination": "/index.html" },
-    { "source": "/setup", "destination": "/index.html" }
+    { "source": "/setup", "destination": "/index.html" },
+    { "source": "/privacy", "destination": "/index.html" }
   ]
 }

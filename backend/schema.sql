@@ -34,3 +34,16 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS setup JSONB;                      
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS intro_done BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS checkin_seconds INT;               -- null means the server default
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'person';  -- person | family
+
+-- family features (added 2026-10-22)
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS consent JSONB;                       -- {by, basis, at}
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS paused BOOLEAN NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS family_messages (
+    id           BIGSERIAL PRIMARY KEY,
+    patient_id   INT NOT NULL REFERENCES patients(id),
+    from_name    TEXT NOT NULL,
+    text         TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    delivered_at TIMESTAMPTZ                                                       -- null until the companion has said it
+);
+CREATE INDEX IF NOT EXISTS family_messages_waiting ON family_messages (patient_id) WHERE delivered_at IS NULL;

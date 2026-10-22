@@ -13,6 +13,8 @@ SEVERITY = {
 
 async def raise_alert(patient_id: int, kind: str, detail: str, dedupe_minutes: int = 30) -> bool:
     """Writes an alert unless the same kind is already open. Returns True if a new row was written."""
+    if await db.is_paused(patient_id):
+        return False  # the family paused monitoring
     async with db.pool.connection() as conn:
         cur = await conn.execute(
             """INSERT INTO alerts (patient_id, kind, detail, severity)

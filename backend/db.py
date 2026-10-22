@@ -24,3 +24,10 @@ pool = AsyncConnectionPool(
     max_idle=120,
     max_lifetime=1800,
 )
+
+
+async def is_paused(patient_id: int) -> bool:
+    """True while the family has paused monitoring: nothing is saved, no alerts, no check-in calls."""
+    async with pool.connection() as conn:
+        row = await (await conn.execute("SELECT paused FROM patients WHERE id = %s", (patient_id,))).fetchone()
+    return bool(row and row[0])

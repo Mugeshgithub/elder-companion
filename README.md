@@ -52,6 +52,7 @@ Backend, `backend/`
 Frontend, `frontend/src/`
 - `Deck.tsx`: the slides at `/`, with an Open app button to `/demo`. Public, holds no data
 - `Demo.tsx`: `/demo`, the companion on the left, the memory inspector on the right
+- `Privacy.tsx`: `/privacy`, consent, pause monitoring, delete what was recorded. States plainly where data goes (Aiven, ElevenLabs, Anthropic, OpenAI)
 - `Setup.tsx`: `/setup`, the family fills this in once: name, private note, daily medicine times, routine, people, usual places, check-in window
 - `Inspector.tsx`: `/inspector`, live Valkey keys and silence timer, a feed of recalls with similarity scores, facts saved, alerts
 - `PatientView.tsx`: the companion alone at `/app` (what the installed Mac app opens). A glow that follows the live voice
@@ -68,6 +69,11 @@ Frontend, `frontend/src/`
 - `POST /activity/{id}`: a person is here (resets the silence timer, ends do-not-disturb)
 - `GET /dashboard/{id}`: status, today's facts, alerts
 - `GET /setup/{id}`, `POST /setup/{id}`: the family's setup. Saving replaces the family's notes and makes the companion introduce itself on the next call
+- `POST /family/{id}/message`, `GET /family/{id}/messages`: a note from a family member. The companion says it once at the start of the next call (the opener) and keeps it as a memory
+- `GET /family/{id}/summary`: a short plain note about today, written only from what was recorded (cached 2 minutes)
+- `GET/POST /family/{id}/consent`: who confirmed, and on what basis (the person agreed, or legal authority)
+- `POST /family/{id}/pause`: nothing saved, no alerts, no check-in calls
+- `POST /family/{id}/erase` with `{"confirm":"DELETE"}`: deletes what the companion learned, alerts and messages. The family's setup stays
 - `GET /inspect/{id}`: Valkey keys and silence timer, recent turns, Postgres count and recent facts, the live event feed
 - `POST /alerts/{id}/{alert_id}/resolve`: mark handled
 

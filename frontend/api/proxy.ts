@@ -7,6 +7,7 @@ const ALLOWED = [
   /^dashboard\/\d+$/,
   /^inspect\/\d+$/,
   /^setup\/\d+$/,
+  /^family\/\d+\/(message|messages|summary|consent|pause|erase)$/,
   /^opener\/\d+$/,
   /^checkin\/\d+$/,
   /^activity\/\d+$/,

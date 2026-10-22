@@ -5,7 +5,13 @@ import { PATIENT_ID } from "./config";
 type Memory = { content: string; category: string; at: string };
 type Alert = { id: number; kind: string; severity: string; detail: string; resolved: boolean; at: string };
 type Status = { level: "green" | "amber" | "red"; title: string; note: string; kind: string | null };
-type Data = { patient: string; status: Status; memories: Memory[]; alerts: Alert[] };
+type Msg = { id: number; from_name: string; text: string; at: string; delivered_at: string | null };
+type Consent = { by: string; basis: string; at: string } | null;
+type Data = {
+  patient: string; status: Status; memories: Memory[]; alerts: Alert[];
+  consent: Consent; paused: boolean; messages: Msg[];
+};
+type Summary = { summary: string; notes: number; alerts: number };
 
 const LABEL: Record<string, string> = {
   family_notification_request: "Asked for their family to be told",
@@ -36,6 +42,16 @@ const PID = Number(new URLSearchParams(window.location.search).get("patient")) |
 export default function CaregiverView() {
   const [data, setData] = useState<Data | null>(null);
   const [offline, setOffline] = useState(false);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [from, setFrom] = useState(() => {
+    try {
+      return localStorage.getItem("ec-from") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [text, setText] = useState("");
+  const [sendState, setSendState] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   const load = useCallback(
     () =>
@@ -52,6 +68,39 @@ export default function CaregiverView() {
     return () => clearInterval(t);
   }, [load]);
 
+  useEffect(() => {
+    const get = () =>
+      api(`/family/${PID}/summary`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then(setSummary)
+        .catch(() => {});
+    get();
+    const t = setInterval(get, 120000);
+    return () => clearInterval(t);
+  }, []);
+
+  const send = async () => {
+    setSendState("sending");
+    try {
+      const r = await api(`/family/${PID}/message`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ from_name: from.trim(), text: text.trim() }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      try {
+        localStorage.setItem("ec-from", from.trim());
+      } catch {
+        /* private window: the name is just typed again */
+      }
+      setText("");
+      setSendState("sent");
+      load();
+    } catch {
+      setSendState("error");
+    }
+  };
+
   const handle = (id: number) =>
     api(`/alerts/${PID}/${id}/resolve`, { method: "POST" }).then(load);
 
@@ -66,11 +115,25 @@ export default function CaregiverView() {
           <h1 className="text-xl font-bold">Family portal</h1>
           <span className="flex min-w-0 items-baseline gap-4">
             <a href="/setup" className="shrink-0 text-base font-medium text-neutral-600 underline underline-offset-4">Set up</a>
+            <a href="/privacy" className="shrink-0 text-base font-medium text-neutral-600 underline underline-offset-4">Privacy</a>
             <span className="text-base font-medium text-neutral-600 truncate">{data?.patient ?? ""}</span>
           </span>
         </header>
 
         {offline && <p className="mt-3 text-base font-medium text-neutral-700">Cannot reach the server. Retrying.</p>}
+
+        {data?.paused && (
+          <p className="mt-4 rounded-xl bg-neutral-800 px-4 py-3 text-base font-medium text-white">
+            Monitoring is paused. Nothing is being saved, and there are no alerts or check-in calls.{" "}
+            <a href="/privacy" className="underline underline-offset-4">Resume in Privacy</a>
+          </p>
+        )}
+        {data && !data.consent && (
+          <p className="mt-4 rounded-xl border border-yellow-500 bg-yellow-100 px-4 py-3 text-base font-medium">
+            Consent has not been recorded yet.{" "}
+            <a href="/privacy" className="underline underline-offset-4">Record it in Privacy</a>
+          </p>
+        )}
 
         {data && banner && (
           <section aria-live="polite" className={`mt-4 rounded-2xl px-5 py-6 ${banner.box}`}>
@@ -110,6 +173,16 @@ export default function CaregiverView() {
           </section>
 
           <section className="rounded-2xl border border-neutral-300 bg-white p-4">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-neutral-600">Today in short</h2>
+            <p className="mt-3 text-lg leading-snug">{summary ? summary.summary : "Loading."}</p>
+            {summary && (
+              <p className="mt-2 text-sm text-neutral-600">
+                Based on {summary.notes} notes and {summary.alerts} alerts from today. It only reflects what was said to the companion.
+              </p>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-neutral-300 bg-white p-4">
             <h2 className="text-sm font-bold uppercase tracking-wide text-neutral-600">Today</h2>
             <ul className="mt-3 space-y-3">
               {data && data.memories.length === 0 && <li className="text-base text-neutral-600">Nothing logged yet today.</li>}
@@ -117,6 +190,57 @@ export default function CaregiverView() {
                 <li key={i} className="flex gap-3">
                   <span className="w-16 shrink-0 text-base font-semibold tabular-nums text-neutral-600">{clock(m.at)}</span>
                   <span className="text-lg leading-snug">{m.content}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="rounded-2xl border border-neutral-300 bg-white p-4">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-neutral-600">Message for {data?.patient ?? "them"}</h2>
+            <p className="mt-1 text-base text-neutral-600">The companion says it at the start of their next call.</p>
+            <label className="mt-3 block text-base font-semibold">
+              From
+              <input
+                className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-lg font-normal"
+                value={from}
+                maxLength={40}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </label>
+            <label className="mt-3 block text-base font-semibold">
+              Message
+              <textarea
+                rows={3}
+                maxLength={300}
+                placeholder="I will visit at four this afternoon."
+                className="mt-1 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-lg font-normal"
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  if (sendState !== "idle") setSendState("idle");
+                }}
+              />
+            </label>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={send}
+                disabled={sendState === "sending" || !from.trim() || !text.trim()}
+                className="min-h-11 rounded-lg bg-neutral-900 px-5 text-base font-semibold text-white disabled:opacity-40"
+              >
+                Send
+              </button>
+              <p role="status" className="text-base font-medium">
+                {sendState === "sent" && "Saved. It will be said at the next call."}
+                {sendState === "error" && "Could not send. Try again."}
+              </p>
+            </div>
+            <ul className="mt-4 space-y-2">
+              {(data?.messages ?? []).slice(0, 3).map((m) => (
+                <li key={m.id} className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <p className="text-sm font-semibold text-neutral-600">
+                    {m.from_name}, {clock(m.at)}, {m.delivered_at ? "said to them" : "waiting for the next call"}
+                  </p>
+                  <p className="text-base break-words">{m.text}</p>
                 </li>
               ))}
             </ul>

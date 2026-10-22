@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 import alerts
 import db
 import episodic_memory
+import family
 import intents
 import learning
 import opener
@@ -24,13 +25,14 @@ from config import AGENT_SHARED_SECRET, INACTIVITY_SECONDS, PATIENT_TZ
 from prompt import CAREGIVER_SYSTEM, CHECKIN_OPENER
 
 
-async def _patient(patient_id: int) -> tuple[str, str, int | None]:
-    """name, profile, and this person's own check-in window in seconds (None means the server default)."""
+async def _patient(patient_id: int) -> tuple[str, str, int | None, bool]:
+    """name, profile, this person's own check-in window in seconds (None means the server default), and
+    whether the family has paused monitoring."""
     async with db.pool.connection() as conn:
         cur = await conn.execute(
-            "SELECT name, COALESCE(profile, ''), checkin_seconds FROM patients WHERE id = %s", (patient_id,))
+            "SELECT name, COALESCE(profile, ''), checkin_seconds, paused FROM patients WHERE id = %s", (patient_id,))
         row = await cur.fetchone()
-    return (row[0], row[1], row[2]) if row else ("friend", "", None)
+    return (row[0], row[1], row[2], row[3]) if row else ("friend", "", None, False)
 
 
 async def _patient_name(patient_id: int) -> str:
@@ -41,6 +43,8 @@ async def _patient_name(patient_id: int) -> str:
 
 
 async def _on_inactive(patient_id: int) -> None:
+    if await db.is_paused(patient_id):
+        return  # monitoring is paused: no alert and no check-in call
     if await working_memory.r.get(f"patient:{patient_id}:dnd"):
         return  # they said goodnight, so silence is expected
     await working_memory.log_event(patient_id, "trigger", "Silence timer expired (Valkey key-expiry event)")
@@ -67,6 +71,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Elder Companion", lifespan=lifespan)
+app.include_router(family.router)
 
 
 @app.middleware("http")
@@ -99,7 +104,7 @@ async def respond(pid: int, message: str | None) -> dict:
         return await _on_silence_message(pid)
 
     if opener:
-        name, profile, window = await _patient(pid)
+        name, profile, window, paused = await _patient(pid)
         text = CHECKIN_OPENER.format(name=name)
         ctx = await memory.build_context(pid, text)
     else:
@@ -108,13 +113,13 @@ async def respond(pid: int, message: str | None) -> dict:
             return {"reply": cached, "model": "cache", "memories_used": 0}
         await working_memory.drop_superseded(pid, message)
         text = message
-        (name, profile, window), ctx = await asyncio.gather(_patient(pid), memory.build_context(pid, text))
+        (name, profile, window, paused), ctx = await asyncio.gather(_patient(pid), memory.build_context(pid, text))
     if not opener:
         await working_memory.log_event(pid, "recall", message, hits=[
             {"content": m["content"], "category": m["category"], "score": round(m["score"], 2)} for m in ctx["memories"][:4]])
     prev = next((t["text"] for t in reversed(ctx["turns"]) if t["role"] == "assistant"), "")
     context = memory.format_for_prompt(ctx)
-    notify_confirmed = not opener and intents.wants_family_notified(message, prev)
+    notify_confirmed = not opener and not paused and intents.wants_family_notified(message, prev)
     if notify_confirmed:
         await alerts.raise_alert(pid, "family_notification_request", intents.snippet(message, prev), dedupe_minutes=5)
         context += (
@@ -127,6 +132,8 @@ async def respond(pid: int, message: str | None) -> dict:
         context += "\n\nThey are going to sleep or want quiet. Reply with one short goodnight and nothing else. Ask nothing and offer nothing."
     elif not opener:
         await working_memory.r.delete(f"patient:{pid}:dnd")
+    if paused:
+        context += "\n\nNotes for their family are switched off right now. Never offer to leave a note or let their family know."
     system = CAREGIVER_SYSTEM.format(
         name=name, profile=f"Always keep in mind: {profile}\n" if profile else "", context=context)
     history = [{"role": t["role"], "content": t["text"]} for t in ctx["turns"]]
@@ -134,7 +141,7 @@ async def respond(pid: int, message: str | None) -> dict:
 
     if not opener and not notify_confirmed and intents.reply_commits_to_note(reply):
         # a promise nobody asked for would be unkept, and recording it would be a false alarm: ask instead
-        reply = "Would you like me to leave a note for your family so they know?"
+        reply = "I'm here with you." if paused else "Would you like me to leave a note for your family so they know?"
 
     await asyncio.gather(
         working_memory.log_event(pid, "reply", reply, model=model_used),
@@ -148,7 +155,8 @@ async def respond(pid: int, message: str | None) -> dict:
         await working_memory.r.delete(f"patient:{pid}:fillers")
         seq = await working_memory.next_seq(pid)
         await working_memory.cache_reply(pid, message, reply, seq)
-        _spawn(learning.commit(pid, name, seq, prev, message))
+        if not paused:
+            _spawn(learning.commit(pid, name, seq, prev, message))
     return {"reply": reply, "model": model_used, "memories_used": len(ctx["memories"])}
 
 
@@ -169,16 +177,20 @@ async def _first_call(patient_id: int) -> bool:
 async def get_opener(patient_id: int, proactive: bool = False):
     name = await _patient_name(patient_id)
     if not proactive and await _first_call(patient_id):
-        return {"opener": (
-            f"Hello {name}. Your family asked me to keep you company. "
-            "Tell me things you want to remember, and ask me where anything is. I'll check in on you too.")}
-    return {"opener": await opener.build_opener(patient_id, name, proactive)}
+        line = (f"Hello {name}. Your family asked me to keep you company. "
+                "Tell me things you want to remember, and ask me where anything is. I'll check in on you too.")
+    else:
+        line = await opener.build_opener(patient_id, name, proactive)
+    waiting = await family.take_messages(patient_id)
+    if waiting:
+        line = f"{line} {family.spoken(waiting)}"
+    return {"opener": line}
 
 
 @app.post("/activity/{patient_id}")
 async def activity(patient_id: int):
     await working_memory.r.delete(f"patient:{patient_id}:dnd")  # a manual start means they are awake
-    _, _, window = await _patient(patient_id)
+    _, _, window, _ = await _patient(patient_id)
     await working_memory.touch_activity(patient_id, window or INACTIVITY_SECONDS)
     return {"ok": True}
 
@@ -215,6 +227,10 @@ async def dashboard(patient_id: int):
             """SELECT id, kind, severity, detail, resolved, created_at FROM alerts
                WHERE patient_id = %s AND (NOT resolved OR created_at > now() - interval '24 hours')
                ORDER BY resolved, created_at DESC LIMIT 30""", (patient_id,))).fetchall()
+        meta = await (await conn.execute("SELECT consent, paused FROM patients WHERE id = %s", (patient_id,))).fetchone()
+        msgs = await (await conn.execute(
+            """SELECT id, from_name, text, created_at, delivered_at FROM family_messages
+               WHERE patient_id = %s ORDER BY created_at DESC LIMIT 5""", (patient_id,))).fetchall()
     alerts_out = [dict(id=i, kind=k, severity=s, detail=d, resolved=r, at=t.isoformat()) for i, k, s, d, r, t in al]
     return {
         "patient": name,
@@ -222,6 +238,10 @@ async def dashboard(patient_id: int):
         "status": _status(alerts_out, pending),
         "memories": [dict(content=c, category=k, at=t.isoformat()) for c, k, t in mem],
         "alerts": alerts_out,
+        "consent": meta[0] if meta else None,
+        "paused": bool(meta and meta[1]),
+        "messages": [dict(id=i, from_name=n, text=t, at=c.isoformat(), delivered_at=d.isoformat() if d else None)
+                     for i, n, t, c, d in msgs],
     }
 
 
@@ -289,7 +309,7 @@ async def save_setup(patient_id: int, body: SetupIn):
             (body.name.strip(), body.note.strip(), body.model_dump_json(), secs, patient_id))
         if cur.rowcount != 1:
             return JSONResponse({"detail": "not found"}, status_code=404)
-        await conn.execute("DELETE FROM memories WHERE patient_id = %s AND source = 'family'", (patient_id,))
+        await conn.execute("DELETE FROM memories WHERE patient_id = %s AND source = 'family' AND category <> 'message'", (patient_id,))
     facts = _family_facts(body)
     await asyncio.gather(*[
         episodic_memory.save_memory(patient_id, text, cat, None, "family") for text, cat in facts])

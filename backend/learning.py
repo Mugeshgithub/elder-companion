@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import alerts
+import db
 import episodic_memory
 import llm
 import textutil
@@ -50,6 +51,8 @@ async def commit(patient_id: int, name: str, seq: int, prev_assistant: str, mess
         return  # a newer version of this utterance arrived, that one will do the learning
     if textutil.is_filler(message):
         return
+    if await db.is_paused(patient_id):
+        return  # paused: nothing about this conversation is kept
     try:
         result = await extract(name, prev_assistant, message)
         for f in result.get("facts", []):
