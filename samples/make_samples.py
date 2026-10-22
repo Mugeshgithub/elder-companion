@@ -133,8 +133,10 @@ def prescription(path: Path, name: str):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", default="Test Person")
-    out = Path(__file__).parent
+    ap.add_argument("--out", default=str(Path(__file__).parent))
     a = ap.parse_args()
+    out = Path(a.out).expanduser()
+    out.mkdir(parents=True, exist_ok=True)
     letter(out / "sample-memory-clinic-letter.pdf", a.name)
     prescription(out / "sample-prescription.pdf", a.name)
     print("wrote", out / "sample-memory-clinic-letter.pdf", "and", out / "sample-prescription.pdf")

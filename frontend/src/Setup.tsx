@@ -49,6 +49,7 @@ export default function Setup() {
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [count, setCount] = useState(0);
   const [denied, setDenied] = useState(false); // a family member may not change the setup
+  const [fromDocs, setFromDocs] = useState<{ name: string; dose: string | null; timing: string | null; source: string }[]>([]);
 
   useEffect(() => {
     api(`/setup/${PID}`)
@@ -69,6 +70,14 @@ export default function Setup() {
         setDenied(status === 404 || status === 403);
         setState("error");
       });
+  }, []);
+
+  // medicines the family already approved from a prescription or clinic letter, offered here so nothing is typed twice
+  useEffect(() => {
+    api(`/family/${PID}/documents/medicines`)
+      .then((r) => (r.ok ? r.json() : { medicines: [] }))
+      .then((d) => setFromDocs(d.medicines ?? []))
+      .catch(() => {});
   }, []);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
@@ -142,6 +151,28 @@ export default function Setup() {
             </Section>
 
             <Section title="Daily medicine" hint="A time here means a dose is due. It is never treated as taken. Only they can say they took it.">
+              <p className="text-base text-neutral-700">
+                Have a prescription or a clinic letter? <a href="/documents" className="font-semibold underline underline-offset-4">Upload it in Medical documents</a>,
+                approve what it says, and its medicines appear here to add.
+              </p>
+              {fromDocs
+                .filter((m) => !f.meds.some((x) => x.name.trim().toLowerCase() === m.name.toLowerCase()))
+                .map((m) => (
+                  <div key={m.name} className="flex items-center justify-between gap-3 rounded-lg border border-green-600 bg-green-50 p-3">
+                    <span className="min-w-0 text-base">
+                      <span className="font-semibold">{m.name}</span>
+                      {m.timing ? `, ${m.timing}` : ""}
+                      <span className="block text-sm text-neutral-600">From {m.source}. Pick the time it is taken.</span>
+                    </span>
+                    <button
+                      type="button"
+                      className={small}
+                      onClick={() => set("meds", [...f.meds, { name: m.name, time: "" }])}
+                    >
+                      Add
+                    </button>
+                  </div>
+                ))}
               {f.meds.map((m, i) => (
                 <div key={i} className="flex gap-2">
                   <input aria-label="Medicine" className={grow} placeholder="The blue pill" value={m.name} onChange={(e) => set("meds", edit(f.meds, i, { name: e.target.value }))} />

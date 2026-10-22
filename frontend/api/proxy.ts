@@ -18,6 +18,7 @@ const OWNER = [
   /^family\/\d+\/notify\/(link|words|test)$/,
   /^family\/\d+\/notify\/\d+\/remove$/,
   /^family\/\d+\/documents$/,
+  /^family\/\d+\/documents\/medicines$/,
   /^family\/\d+\/documents\/\d+$/,
   /^family\/\d+\/documents\/\d+\/delete$/,
   /^family\/\d+\/documents\/\d+\/facts\/\d+$/,

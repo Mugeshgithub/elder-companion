@@ -243,6 +243,26 @@ def _same_person(patient: str, named: str | None) -> bool:
     return any(t in _norm(named) for t in tokens)
 
 
+@router.get("/{pid}/documents/medicines")
+async def approved_medicines(pid: int):
+    """Medicines the family has approved from documents, so the setup form can offer them. Declared before the
+    /{did} route, or "medicines" would be read as a document number."""
+    async with db.pool.connection() as conn:
+        rows = await (await conn.execute(
+            """SELECT f.detail, d.doc_type, d.author, d.doc_date FROM document_facts f JOIN documents d ON d.id = f.document_id
+               WHERE f.patient_id = %s AND f.status = 'approved' AND f.kind = 'medication' ORDER BY d.doc_date DESC NULLS LAST, f.id""", (pid,))).fetchall()
+    seen, out = set(), []
+    for detail, dtype, author, ddate in rows:
+        med = (detail or {}).get("medication") or {}
+        name = (med.get("name") or "").strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        out.append({"name": name, "dose": med.get("dose"), "frequency": med.get("frequency"), "timing": med.get("timing"),
+                    "source": _label(dtype, author, ddate)})
+    return {"medicines": out}
+
+
 @router.get("/{pid}/documents/{did}")
 async def get_document(pid: int, did: int):
     async with db.pool.connection() as conn:
