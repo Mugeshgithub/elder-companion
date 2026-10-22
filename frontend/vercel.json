@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/caregiver", "destination": "/index.html" },
+    { "source": "/demo", "destination": "/index.html" },
+    { "source": "/app", "destination": "/index.html" },
+    { "source": "/inspector", "destination": "/index.html" },
+    { "source": "/setup", "destination": "/index.html" }
+  ]
+}

@@ -1,0 +1,16 @@
+.env
+__pycache__/
+.venv/
+node_modules/
+.DS_Store
+*.log
+
+# real conversations and the separate Lovable clone stay local
+transcripts/
+lovable-frontend/
+
+# build output and deploy state
+frontend/dist/
+frontend/.vercel/
+.vercel/
+.modal.toml
