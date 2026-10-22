@@ -5,6 +5,7 @@ import { PATIENT_ID } from "./config";
 type Consent = { by: string; basis: string; at: string } | null;
 type Member = { id: number; name: string; created_at: string; last_seen: string | null };
 type Entry = { actor: string; action: string; detail: string; at: string };
+type Notify = { enabled: boolean; bot: string | null; include_words: boolean; targets: { id: number; name: string; created_at: string }[] };
 type Info = {
   patient: string;
   consent: Consent;
@@ -39,6 +40,11 @@ const ACTION: Record<string, string> = {
   retention: "changed how long data is kept",
   export: "downloaded a copy of the data",
   member_added: "added a family member",
+  notify_link: "made a Telegram link",
+  notify_connected: "connected a phone for alerts",
+  notify_words: "changed whether messages include their words",
+  notify_test: "sent a test message",
+  notify_removed: "removed a phone from alerts",
   member_removed: "removed a family member",
   alert_handled: "marked an alert as handled",
 };
@@ -62,6 +68,9 @@ export default function Privacy() {
   const [typed, setTyped] = useState("");
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState<{ name: string; code: string } | null>(null);
+  const [notify, setNotify] = useState<Notify | null>(null);
+  const [phoneName, setPhoneName] = useState("");
+  const [link, setLink] = useState<{ name: string; url: string } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -75,6 +84,8 @@ export default function Privacy() {
       const r = await api(`/family/${PID}/privacy`);
       if (!r.ok) throw new Error(String(r.status));
       setInfo(await r.json());
+      const n = await api(`/family/${PID}/notify`);
+      if (n.ok) setNotify(await n.json());
       setError(false);
     } catch {
       setError(true);
@@ -156,8 +167,8 @@ export default function Privacy() {
                 and our servers are in the EU. Nothing is sold.
               </p>
               <p>
-                To work, the words are processed by other services: ElevenLabs for speech, Anthropic for the replies, and OpenAI for
-                searching notes. They are outside our control and may process data outside the EU. ElevenLabs also keeps its own call
+                To work, the words are processed by other services: ElevenLabs for speech, Anthropic for the replies, OpenAI for
+                searching notes, and Telegram for phone alerts. They are outside our control and may process data outside the EU. ElevenLabs also keeps its own call
                 transcripts.
               </p>
               <p>The companion tells people it is an AI. It never gives medical advice, and it does not diagnose.</p>
@@ -286,6 +297,80 @@ export default function Privacy() {
                   Add
                 </button>
               </div>
+            </Card>
+
+            <Card title="Phone alerts (Telegram)">
+              {!notify?.enabled && <p>Not set up on the server yet.</p>}
+              {notify?.enabled && (
+                <>
+                  <p>
+                    Important alerts reach each connected phone as a message. To keep phones calm: alerts in the same moment become one
+                    message, the same kind does not repeat for 30 minutes, there are at most 4 messages an hour, and a serious alert still
+                    open after 20 minutes gets one reminder. The portal always shows everything. Anyone can send /stop to the bot to stop.
+                  </p>
+                  <ul className="space-y-2">
+                    {notify.targets.length === 0 && <li>No phone is connected yet.</li>}
+                    {notify.targets.map((t) => (
+                      <li key={t.id} className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 p-3">
+                        <span className="font-semibold text-neutral-900">{t.name}</span>
+                        <button onClick={() => post(`notify/${t.id}/remove`, {})} disabled={busy} className={`${button} border border-neutral-400`}>
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {link && (
+                    <p className="rounded-lg bg-yellow-100 px-3 py-2 text-neutral-900">
+                      Send this to {link.name}. They open it on their phone and press Start. It works once, for 24 hours:{" "}
+                      <a href={link.url} className="break-all font-mono font-bold underline">{link.url}</a>
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <input
+                      aria-label="Name of the person to connect"
+                      className={`${input} min-w-0 flex-1`}
+                      placeholder="Name"
+                      value={phoneName}
+                      maxLength={40}
+                      onChange={(e) => setPhoneName(e.target.value)}
+                    />
+                    <button
+                      onClick={async () => {
+                        const out = await post("notify/link", { name: phoneName.trim() });
+                        if (out) {
+                          setLink({ name: out.name, url: out.link });
+                          setPhoneName("");
+                        }
+                      }}
+                      disabled={busy || !phoneName.trim()}
+                      className={`${button} bg-neutral-900 text-white`}
+                    >
+                      Get a link
+                    </button>
+                  </div>
+                  <label className="flex min-h-11 items-center gap-3 font-medium">
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5"
+                      checked={notify.include_words}
+                      disabled={busy}
+                      onChange={(e) => post("notify/words", { include: e.target.checked })}
+                    />
+                    Include {name}&rsquo;s own words in messages
+                  </label>
+                  <p className="text-sm">Off by default. A message on a phone is health information leaving this system, so by default it says what kind of alert it is, and the words stay on the portal.</p>
+                  <button
+                    onClick={async () => {
+                      const out = await post("notify/test", {});
+                      if (out) setNote(`Test message delivered to ${out.sent} of ${out.connected} phones.`);
+                    }}
+                    disabled={busy || notify.targets.length === 0}
+                    className={`${button} border border-neutral-900`}
+                  >
+                    Send a test message
+                  </button>
+                </>
+              )}
             </Card>
 
             <Card title="Activity log">

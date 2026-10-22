@@ -14,6 +14,7 @@ import db
 import documents
 import episodic_memory
 import family
+import notify
 import intents
 import learning
 import opener
@@ -67,21 +68,26 @@ async def lifespan(app: FastAPI):
     await db.pool.open(wait=True, timeout=30)  # connections are ready before the first request
     task = asyncio.create_task(triggers.listen_for_inactivity(_on_inactive))
     purge = asyncio.create_task(family.purge_loop())
+    remind = asyncio.create_task(notify.reminder_loop())
     yield
     task.cancel()
     purge.cancel()
+    remind.cancel()
     await db.pool.close()
 
 
 app = FastAPI(title="Elder Companion", lifespan=lifespan)
 app.include_router(family.router)
 app.include_router(documents.router)
+app.include_router(notify.router)
+app.include_router(notify.hook)
 
 
 @app.middleware("http")
 async def require_secret(request: Request, call_next):
     """The server is reachable through a public tunnel, so every route needs the shared secret."""
-    if request.headers.get("x-api-key") != AGENT_SHARED_SECRET:
+    # Telegram cannot send our key, so its webhook is checked by its own secret header inside the route
+    if request.url.path != "/telegram/webhook" and request.headers.get("x-api-key") != AGENT_SHARED_SECRET:
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -357,10 +363,12 @@ async def inspect(patient_id: int):
 @app.post("/alerts/{patient_id}/{alert_id}/resolve")
 async def resolve_alert(patient_id: int, alert_id: int, request: Request):
     async with db.pool.connection() as conn:
-        cur = await conn.execute("UPDATE alerts SET resolved = true WHERE id = %s AND patient_id = %s", (alert_id, patient_id))
-        done = cur.rowcount == 1
+        row = await (await conn.execute(
+            "UPDATE alerts SET resolved = true WHERE id = %s AND patient_id = %s RETURNING kind", (alert_id, patient_id))).fetchone()
+        done = row is not None
     if done:
         await family.audit(patient_id, family.actor_of(request), "alert_handled", f"alert {alert_id}")
+        notify.fire_handled(patient_id, family.actor_of(request), row[0])  # so the others do not act twice
     return {"resolved": done}
 
 

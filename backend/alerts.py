@@ -1,4 +1,5 @@
 import db
+import notify
 import working_memory
 
 SEVERITY = {
@@ -27,4 +28,5 @@ async def raise_alert(patient_id: int, kind: str, detail: str, dedupe_minutes: i
         written = await cur.fetchone() is not None
     if written:
         await working_memory.log_event(patient_id, "alert", detail, alert=kind, severity=SEVERITY.get(kind, "normal"))
+        notify.fire(patient_id, kind, detail)  # a message to the family's phones, in the background
     return written

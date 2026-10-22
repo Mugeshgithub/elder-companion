@@ -101,3 +101,21 @@ CREATE TABLE IF NOT EXISTS document_facts (
     memory_id   BIGINT                                  -- the memory the companion reads, once approved
 );
 CREATE INDEX IF NOT EXISTS document_facts_doc ON document_facts (document_id);
+
+-- telegram alerts (added 2026-10-22)
+CREATE TABLE IF NOT EXISTS notify_targets (
+    id         BIGSERIAL PRIMARY KEY,
+    patient_id INT NOT NULL REFERENCES patients(id),
+    name       TEXT NOT NULL,
+    chat_id    BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (patient_id, chat_id)
+);
+CREATE TABLE IF NOT EXISTS notify_links (
+    token_hash TEXT PRIMARY KEY,                -- the link token is shown once and only a hash is kept
+    patient_id INT NOT NULL REFERENCES patients(id),
+    name       TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS notify_words BOOLEAN NOT NULL DEFAULT false;  -- include the person's words in messages
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reminded_at TIMESTAMPTZ;  -- set when the one reminder for an open serious alert was sent

@@ -344,6 +344,8 @@ async def export(pid: int, request: Request):
             "SELECT name, created_at, last_seen FROM family_members WHERE patient_id = %s ORDER BY created_at", (pid,))).fetchall()
         trail = await (await conn.execute(
             "SELECT actor, action, detail, at FROM audit_log WHERE patient_id = %s ORDER BY at", (pid,))).fetchall()
+        targets = await (await conn.execute(
+            "SELECT name, created_at FROM notify_targets WHERE patient_id = %s ORDER BY created_at", (pid,))).fetchall()
         docs = await (await conn.execute(
             "SELECT id, filename, doc_type, doc_date, author, named_patient, uploaded_by, uploaded_at, pages FROM documents WHERE patient_id = %s ORDER BY uploaded_at", (pid,))).fetchall()
         dfacts = await (await conn.execute(
@@ -359,6 +361,7 @@ async def export(pid: int, request: Request):
         "alerts": [dict(kind=k, severity=s, detail=d, resolved=r, at=iso(t)) for k, s, d, r, t in al],
         "messages": [dict(from_name=n, text=t, at=iso(c), said_at=iso(d)) for n, t, c, d in msgs],
         "family_members": [dict(name=n, added=iso(c), last_seen=iso(s)) for n, c, s in members],
+        "phone_alerts": [dict(name=n, connected=iso(c)) for n, c in targets],
         "audit": [dict(actor=a, action=ac, detail=d, at=iso(t)) for a, ac, d, t in trail],
         "documents": [dict(
             filename=fn, type=ty, date=iso(dd), author=au, about=nm, uploaded_by=ub, uploaded_at=iso(ua), text_by_page=pg,
