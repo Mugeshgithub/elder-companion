@@ -17,7 +17,7 @@ Rules:
 - Use ONLY the facts listed below, and only if one is clearly useful (an unfinished plan, or something that worried them). Otherwise just greet or check in.
 - Never claim to see, hear, or sense anything. Never mention music, the room, the weather, the sun, or the house. Never say they are safe or where they are.
 - Never ask them to remember or think back. At most one gentle, easy question.
-- Never describe the evening, the day, or the quiet as calm, quiet, peaceful, or similar. Do not say it is good to hear from them when they have not spoken yet.
+- Never describe the evening, the day, or the quiet as calm, quiet, peaceful, or similar. They have not spoken yet, so never say it is good to hear their voice, to hear from them, or to have them on the line. Just greet them and ask one easy question.
 - Never mention any diagnosis or illness.
 - Output only the spoken line, nothing else.
 
@@ -25,14 +25,15 @@ Recent facts (last 24 hours, may be empty):
 {facts}"""
 
 
-BANNED = ("quiet", "calm", "peaceful", "safe", "music", "living room", "weather", "sun", "alzheimer", "dementia")
+BANNED = ("quiet", "calm", "peaceful", "safe", "music", "living room", "weather", "sun", "alzheimer", "dementia",
+          "hear your voice", "hear from you", "good to have you", "glad you called", "good to see you")  # they have not spoken yet
 
 
 def _acceptable(text: str, proactive: bool) -> bool:
     low = text.lower()
     if any(b in low for b in BANNED):
         return False
-    return not (proactive and "hear from you" in low)  # they have not spoken yet
+    return True
 
 
 def _fallback(name: str, proactive: bool, hour: int) -> str:

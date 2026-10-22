@@ -107,7 +107,8 @@ async def _on_silence_message(pid: int) -> dict:
     if streak >= 2 and not await working_memory.r.get(f"patient:{pid}:dnd"):
         await alerts.raise_alert(pid, "no_response", "The check-in call was not answered.", dedupe_minutes=30)
         await working_memory.r.delete(f"patient:{pid}:checkin_pending")  # do not call an empty room again
-    return {"reply": "I'm here.", "model": "silence", "memories_used": 0}
+    # the first silence gets one gentle line; after that the companion waits quietly, until the person speaks again
+    return {"reply": "Take your time. I'm here." if streak == 1 else "", "model": "silence", "memories_used": 0}
 
 
 async def respond(pid: int, message: str | None) -> dict:
@@ -406,7 +407,7 @@ async def openai_compatible(request: Request):
 
     async def gen():
         yield chunk({"role": "assistant", "content": ""})
-        for word in reply.split(" "):
+        for word in (reply.split(" ") if reply else []):  # an empty reply is a quiet turn: nothing to say
             yield chunk({"content": word + " "})
         yield chunk({}, "stop")
         yield "data: [DONE]\n\n"
