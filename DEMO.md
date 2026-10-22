@@ -1,41 +1,53 @@
-# Rehearsal script
+# Demo script
 
-## Before you start
-- **ElevenLabs credits**: the account was on the free tier with all 10,000 credits used on 2026-10-21 (resets 21 Nov). Redeem the sponsor credits or upgrade before any voice call, or calls fail instantly.
-- Close the patient tab (Tab A) when you are not rehearsing. It starts calls by itself after silence, and each call costs credits.
-- Tunnel terminal is running (`cloudflared tunnel --url http://localhost:8000`). If you restarted it, give Claude the new URL.
-- Tab A, the patient screen: http://localhost:4340/
-- Tab B, the family portal: http://localhost:4340/caregiver (should be green)
-- Silence timer is 30 seconds for the demo (`INACTIVITY_SECONDS` in `.env`; use 14400 for real use)
+Three features, about three minutes, with a safety net so nothing depends on the microphone.
 
-## Beat 1: it learns (about 1 minute)
-1. Tab A: touch the screen once. The agent greets you.
-2. Say: "I just put my wallet on the kitchen table."
-3. Say: "I just took my blue pill."
-4. Touch the screen to end the call. Wait 10 seconds (it learns after you stop talking).
-5. Tab B, "Today": two facts appear.
+## What you are showing
+1. **A memory you can watch** (Aiven): a fact is saved, then found by meaning.
+2. **Medical documents with sources**: the answer names the clinic letter, and the model never advises.
+3. **The family hears, and can reply**: an alert on a phone, and a message the companion says aloud.
 
-## Beat 2: it remembers (about 1 minute)
-1. Touch the screen to start a new call.
-2. Ask: "Where did I put my wallet?" It should say the kitchen table.
-3. Ask: "Did I take my pill today?" It should confirm, because you told it.
-4. Ask something it can't know: "Where is my passport?" It should say it has nothing written down, and not guess.
+## Before you go on
+- Open the live demo page (`/demo`), the family portal (`/caregiver`) in a second tab, and Telegram on your phone.
+- Upload the sample prescription on `/documents` and leave it unapproved. Approving it is part of the demo. Make your own with `python samples/make_samples.py --name YourName`.
+- Start from a clean profile: portal green, no open alerts, no pending call.
+- Check your phone is connected under Privacy, Phone alerts, and that the ElevenLabs credits are available.
+- **The silence timer is 30 seconds in demo mode.** If you pause, the companion will call you. For real use set `INACTIVITY_SECONDS` to 14400.
+- **Do not redeploy anything in the hour before.** A server restart can wait minutes for capacity.
+- Do one dry run of any voice step. The typing box on `/demo` uses the same brain, so if voice misbehaves, type instead.
 
-## Beat 3: it reaches out (about 1 minute)
-1. Touch the screen to end the call. Then do nothing.
-2. After about 30 seconds Tab B turns yellow, "Check-in pending".
-3. A few seconds later the screen starts the call by itself and the agent speaks first.
+## The three moments
 
-## Beat 4: it tells the family (about 1 minute)
-1. In that call, say: "I can't find my key and I'm worried."
-2. The agent offers to leave a note for the family. Say: "Yes please."
-3. Tab B turns red within about 5 seconds, with your exact words in the alert.
-4. Click "Mark handled". Tab B turns green.
+**1. It remembers (the data story)**
+- Type: `I just put my wallet on the kitchen table.`
+- In the live feed on the right, watch it saved to Postgres as a vector.
+- Type: `Where did I leave my wallet?` The feed shows the pgvector search and its similarity score.
+- Say: "It found it by meaning, and the data is on Aiven."
 
-## Things not to expect
-- It cannot phone or message anyone. "Notify" puts a note on the family portal.
-- It will not give medical advice.
-- Pauses longer than 30 seconds, even in a call, can raise a silence alert.
-- If nobody answers a check-in, it hangs up after about a minute and puts one 'Check-in call was not answered' alert on the portal. It does not keep calling.
-- Say 'good night' and it stays quiet for 8 hours (no calls, no silence alerts). Touching the screen wakes it.
-- After an auto-call ends, it will not call again for 2 minutes.
+**2. It shows where it learned it**
+- Open `/documents`, press Review on the prescription, read two cards with their exact quote and page, press **Approve all**.
+- Type: `What medicine do I take in the evening?` The answer names the clinic letter.
+- Type: `Should I take double tonight?` A fixed reply points to the doctor or pharmacist.
+- Say: "Every medical word comes from a document the family approved. It never advises, and that rule is in our code."
+
+**3. The family hears**
+- Type: `I'm very frightened and I don't know where I am.`
+- About 25 seconds later (the wait that merges bursts) the Telegram alert arrives on your phone and the portal turns red. Show the phone.
+- Press **Mark handled** on the portal. A second message tells the others.
+- Optional: type a message to the bot from your phone. The companion reaches out and says it.
+
+## Extras, if there is time
+- `Where is my passport?` It says it has nothing written down and does not guess.
+- Set a medicine time two minutes ahead in Setup, then watch the reminder ring on its own.
+
+## Do not ask
+Anything about maps, location or setting reminders by voice. Those are limited or not built, and the honest answer flattens the demo.
+
+## Words to avoid
+"Compliant", "certified", "diagnose", "treat", "cures", "clinically proven", "safe for patients". Say "built with EU rules in mind, not certified".
+
+## Things that are not what they seem
+- It cannot phone anyone. Notify writes to the portal and Telegram.
+- The documents are fictional.
+- Hold-to-talk keeps the microphone off until the orb or the space bar is held.
+- Telegram messages carry no health words unless the owner turns that on.

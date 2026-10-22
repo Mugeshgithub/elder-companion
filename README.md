@@ -1,154 +1,250 @@
-# Elder Companion
+# Memory Lane
 
-A voice companion for someone with memory loss, and a family portal that shows what happened.
-Built for one person (Mugesh) first. Built 2026-10-21.
+**A voice companion for people with Alzheimer's. It remembers for them, speaks first when they go quiet, and keeps their family in the loop.**
+
+> A second memory you can talk to.
+
+Memory Lane is a working prototype built for a hackathon on a data theme. It is not a medical device, it does not diagnose, and it never gives medical advice. One real person has used it. Read [What is real and what is not](#what-is-real-and-what-is-not) before relying on anything here.
+
+---
+
+## Contents
+1. [The problem](#the-problem)
+2. [What it does](#what-it-does)
+3. [What is real and what is not](#what-is-real-and-what-is-not)
+4. [How it works](#how-it-works)
+5. [Safety and privacy by design](#safety-and-privacy-by-design)
+6. [Try it](#try-it)
+7. [Run it yourself](#run-it-yourself)
+8. [Code map](#code-map)
+9. [API at a glance](#api-at-a-glance)
+10. [Known limits](#known-limits)
+11. [The future](#the-future)
+12. [Notes for the next person](#notes-for-the-next-person)
+
+---
+
+## The problem
+
+In mild Alzheimer's, the person loses small daily memories (where the keys are, whether the pill was taken), which brings anxiety and risk. Their family cannot know how they are doing between visits.
+
+- About 55 million people live with dementia worldwide, and family and friends give about 5 hours of unpaid care a day on average (WHO, 2021 and 2019 reports).
+- Common, serious problems include wandering (the Alzheimer's Association figure, repeated in the press, is about six in ten people at some point), medicines at home, and strain and loneliness for carers. One small study of 88 carers found 40% had difficulty managing medication and 74% reported high strain ([Carer Strain and Carer Coping with Medications for People with Dementia](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7551266/)).
+- Most assistants wait to be asked. A person who forgets cannot ask for the thing they forgot.
+
+**What this project tries to solve, narrowly:** daily memory support and family peace of mind in the early stage. It does not solve wandering, physical safety, late-stage care, or any treatment decision.
 
 ## What it does
-1. **Talks by voice.** A phone-call style conversation with interruptions handled. ElevenLabs does the audio, our server does the thinking.
-2. **Remembers.** After you speak, it pulls out durable facts ("keys are in the blue bag", "took the blue pill") and answers from them later.
-3. **Never guesses.** If it has nothing written down, it says so. It does not name places, plans, or doses that are not in memory.
-4. **Reaches out first.** After 30 seconds of silence (4 hours in real use) it raises an alert and starts the call itself.
-5. **Tells the family.** Distress, confusion, a missed dose, silence, an unanswered check-in, or a request ("tell my family") put an alert on the family portal.
-6. **Respects sleep.** "Good night" means no calls and no silence alerts for 8 hours.
 
-## How a conversation flows
-```
-You speak -> ElevenLabs (voice, interruptions)
-          -> our server, through a cloudflared tunnel
-               1. recent turns + mood       (Aiven Valkey)
-               2. today's confirmed facts   (Aiven Postgres)
-               3. past memories by meaning  (Aiven Postgres + pgvector)
-               4. Claude writes the reply   (OpenAI is the fallback)
-               5. reply goes back to ElevenLabs, which speaks it
-          -> 4 seconds after you stop: Claude extracts facts and concerns, saved as memories and alerts
-```
-
-## Stack
-| Part | Choice |
+| | |
 |---|---|
-| Voice | ElevenLabs Conversational AI (custom LLM = our server) |
-| Replies | Claude Haiku 5.5, thinking off. OpenAI gpt-4o-mini as fallback |
-| Embeddings | OpenAI text-embedding-3-small, 1024 dimensions |
-| Working memory | Aiven for Valkey 9.1 |
-| Long-term memory | Aiven for PostgreSQL 18 with pgvector |
-| Server | FastAPI (Python) |
-| Screens | React + Vite + Tailwind |
+| **It remembers** | Facts from conversation are saved as they are said (where things are, whether a pill was taken) and found again by meaning. |
+| **It never guesses** | If nothing is written down, it says so. No invented places, plans or doses. |
+| **It speaks first** | After a quiet spell it starts the call itself. At a medicine time it rings with a reminder. |
+| **Medical documents, with sources** | A family uploads a clinic letter or prescription. A forced tool call turns it into findings, every finding must quote the document, code checks the quote on the page, and the family approves each one. The companion then answers with the source named. |
+| **It knows its limits** | It tells people it is an AI. Dosing questions get a fixed reply that points to the doctor or pharmacist. A diagnosis or a test score can be kept as a family record, and the companion never says it. |
+| **The family stays in the loop** | A portal with a red, yellow or green status, alerts, and a plain daily summary. Important alerts arrive as Telegram messages, paced so phones are not flooded. A family member can type to the bot and the companion says it aloud. |
+| **The family stays in control** | Recorded consent, pause monitoring, download a copy, delete, automatic expiry, individual family codes, and an activity log. |
+| **Optional location, limited** | A page open on a phone shares its position. Leaving a safe area for five minutes alerts the family. It cannot track in the background. |
+
+## What is real and what is not
+
+**Working and tested**
+- Voice conversations through an ElevenLabs agent whose replies come from our own server.
+- Short-term memory (Aiven for Valkey) and long-term memory searched by meaning (Aiven for PostgreSQL with pgvector).
+- The silence trigger, driven by a Valkey key-expiry event, and the medicine-reminder trigger on the same mechanism (a reminder set two minutes ahead fired on its own timer).
+- Medical documents: extraction, quote verification, family approval, cited answers, the fixed dosing reply.
+- Family portal, setup, consent, pause, export, delete, retention, roles, audit log.
+- Telegram alerts with pacing, the two-way message flow, and the evening digest.
+- An installable Mac menu bar app (runs on the Mac that built it).
+
+**Working but limited**
+- Location sharing works only while a page is open on a phone.
+- Hold-to-talk was built to keep room noise out of the transcript. It has not been proven in a long live session, and hands-free is probably the better default for real users.
+- Reminders and proactive calls need the companion app to be open on a device.
+
+**Not built**
+- Scanned documents (text PDFs only), accounts for many families, a native phone app, SMS or email alerts, a "companion is offline" alert, and anything clinical.
+
+**Not done, and not code**
+- A data protection impact assessment, processor agreements with every service used, and a legal review. See [Safety and privacy](#safety-and-privacy-by-design).
+
+## How it works
+
+```
+ Person speaks ──► ElevenLabs (voice, interruptions)
+                        │  custom LLM: every reply comes from our server
+                        ▼
+              FastAPI server (Modal, EU)
+   ┌────────────────────┼─────────────────────┐
+   ▼                    ▼                     ▼
+ Aiven Valkey       Aiven PostgreSQL       Claude writes the reply
+ working memory     + pgvector             (OpenAI is the fallback)
+ recent turns,      long-term memory,
+ mood, timers       searched by meaning
+   │                    ▲
+   │ key expiry         │ 4 seconds after they stop:
+   ▼                    │ Claude extracts facts and concerns,
+ silence check-in,      │ and they are saved
+ medicine reminder ─────┘
+```
+
+**Two memories, two jobs.**
+- **Aiven for Valkey** holds what is happening now: recent turns, mood, a silence timer, and a timer per medicine time. When a timer's key expires, Valkey tells us, and that starts a call. Expiry is the trigger.
+- **Aiven for PostgreSQL with pgvector** holds what lasts: every fact as a 1024-number vector, searched by meaning, so "where is my wallet" finds "wallet on the kitchen table". The same database holds alerts, documents, family messages, consent and the audit log.
+
+**The reply path** (about 2 to 3 seconds for a typed reply): the server reads recent turns, today's confirmed facts and relevant memories in parallel, then Claude writes a short reply under rules enforced in code.
+
+**The document path:** PDF text is extracted, Claude is forced to call a `record_findings` tool with a strict schema, each finding's quote is verified against the page, and nothing is spoken until a person approves it. Only medicines, appointments, instructions and contacts can reach the companion.
+
+**Where things run**
+
+| Part | Where |
+|---|---|
+| Databases | Aiven, Frankfurt |
+| Backend | Modal, EU region, one always-on container |
+| Website and proxy | Vercel (the proxy function runs in Frankfurt) |
+| Voice | ElevenLabs |
+| Replies and document reading | Anthropic (Claude), with OpenAI as a fallback and for embeddings |
+| Phone alerts | Telegram |
+
+## Safety and privacy by design
+
+Rules that are enforced in code, not only written in a prompt:
+
+- A dose is confirmed only if the person said so today. A time from the family means a dose is due, never taken. A reminder's follow-up says "no confirmation", never "missed".
+- It never asks the person to remember or think back.
+- It never says where something is unless that exact place is in its memory. It never states how someone is related to the person unless a memory says so.
+- It cannot phone anyone, so it offers to leave a note and records it only after the person agrees.
+- Dosing questions ("should I take double?") get a fixed reply pointing to the doctor or pharmacist.
+- Silence markers never reach the model.
+- Documents: a finding whose quote is not on the page cannot be approved. A diagnosis or a test score is never repeated by the companion.
+- It tells people it is an AI.
+
+Controls the family has: a consent record (the person agreed, or someone with legal authority recorded it), pause (nothing saved, no alerts, no check-in calls), a download of everything stored, deletion of what was recorded, automatic expiry (default one year), individual family codes with roles, and an activity log.
+
+**Honest status under EU rules.** This is built with GDPR, the EU AI Act and medical-device boundaries in mind. It is **not certified, not audited, and not legal advice.** Still to do: a data protection impact assessment (GDPR Article 35), processor agreements with every service used (Aiven, ElevenLabs, Anthropic, OpenAI, Modal, Vercel, Telegram), a legal review (the basis for health data, capacity to consent, and whether France's health data hosting rule applies), and keeping the stated purpose to companionship and memory support so it is not treated as a medical device. The privacy page in the app lists exactly where data goes. ElevenLabs keeps its own call transcripts, which our delete cannot remove.
+
+The sample medical documents in `samples/` are **fictional**: a made-up clinic, doctor and patient, watermarked on every page.
+
+## Try it
+
+- **Slides and live demo:** the deployed site's home page is the deck. "Open app" goes to `/demo`: the companion on the left, a live memory inspector on the right, and a box to type to the companion without a microphone.
+- **The scripted demo** is in [DEMO.md](DEMO.md): three features in about three minutes.
+- **Sample documents:** `python samples/make_samples.py --name YourName` writes a fictional clinic letter and prescription.
+
+## Run it yourself
+
+You need Python 3.13, Node, an Aiven account (PostgreSQL with pgvector, and Valkey with key-expiry events enabled by setting `valkey_notify_keyspace_events` to `Ex`), and keys for Anthropic, OpenAI (embeddings) and ElevenLabs. Telegram is optional.
+
+```bash
+# settings: copy the template and fill it in. Never commit .env.
+cp .env.example .env
+
+# backend
+python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
+psql "$POSTGRES_URI" -f backend/schema.sql
+cd backend && ../.venv/bin/uvicorn main:app --port 8000
+
+# frontend (dev server on port 4340; set DEV_BACKEND=https://... to use a deployed backend)
+cd frontend && npm install && npm run dev
+
+# the voice agent, once: creates an ElevenLabs agent that calls your backend
+cd backend && ../.venv/bin/python create_agent.py https://YOUR-BACKEND-URL
+```
+
+**Deploying**
+- **Backend on Modal:** create a Modal secret named `elder-companion` from your `.env` (leave out the ElevenLabs key, the server does not need it), then `modal deploy backend/modal_app.py`. It runs one always-on container, because the silence and reminder listener lives inside it. **Do not run a local backend at the same time**, or both will react to every timer. A redeploy can wait minutes for capacity, so do not redeploy right before a demo.
+- **Website on Vercel:** from `frontend/`, run `vercel deploy --prod`. Set three variables on the project: `BACKEND_URL`, `AGENT_SHARED_SECRET` and `ACCESS_CODE`. Use a long access code, not a short one.
+- **Telegram (optional):** create a bot with BotFather, put `TELEGRAM_BOT_TOKEN` and a random `TELEGRAM_WEBHOOK_SECRET` in the Modal secret, then register the webhook with `setWebhook` and the same secret token. Revoke and replace the bot token when you are done.
+- **Mac app (optional):** `cd desktop && npm install && npm run build`, then ad-hoc sign and copy it to `~/Applications`. It is not notarized, so it only runs on the Mac that built it. A global shortcut (Cmd+Shift+Space) starts a call from any app.
+
+**Settings** (names only; see `.env.example`): `POSTGRES_URI`, `VALKEY_URI`, `ANTHROPIC_API_KEY`, `EMBEDDINGS_API_KEY`, `ELEVENLABS_API_KEY`, `AGENT_SHARED_SECRET`, `INACTIVITY_SECONDS` (30 for demos, 14400 for real use), `PATIENT_TZ`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `PORTAL_URL`.
 
 ## Code map
-Backend, `backend/`
-- `main.py`: the server and every endpoint, plus the shared reply logic (`respond`)
-- `prompt.py`: the companion's instructions and safety rules
-- `working_memory.py`: Valkey: recent turns, mood, silence timer, duplicate collapsing, reply cache, and a short event log for the inspector
-- `episodic_memory.py`: Postgres: save and search memories, today's confirmed facts
-- `memory.py`: queries both memories in parallel and builds the prompt context
-- `learning.py`: after a pause, extracts facts and concerns from what was said
-- `intents.py`: "tell my family" detection, "good night" detection, promise guard
-- `alerts.py`: writes alerts with severity, avoids duplicates
-- `triggers.py`: listens for Valkey key-expiry events (the silence trigger), reconnects if dropped
-- `opener.py`: writes the first spoken line of each call from real facts
-- `llm.py`: Claude first, OpenAI fallback
-- `embeddings.py`, `textutil.py`, `config.py`, `schema.sql`, `create_agent.py`
 
-Frontend, `frontend/src/`
-- `Deck.tsx`: the slides at `/`, with an Open app button to `/demo`. Public, holds no data
-- `Demo.tsx`: `/demo`, the companion on the left, the memory inspector on the right
-- `Documents.tsx`: `/documents`, upload a PDF and review each finding with its exact quote and page, approve or reject, delete (owner only)
-- `Privacy.tsx`: `/privacy`, consent, pause monitoring, delete what was recorded. States plainly where data goes (Aiven, ElevenLabs, Anthropic, OpenAI)
-- `Setup.tsx`: `/setup`, the family fills this in once: name, private note, daily medicine times, routine, people, usual places, check-in window
-- `Inspector.tsx`: `/inspector`, live Valkey keys and silence timer, a feed of recalls with similarity scores, facts saved, alerts
-- `PatientView.tsx`: the companion alone at `/app` (what the installed Mac app opens). A glow that follows the live voice
-- `CaregiverView.tsx`: the family portal at `/caregiver`
-- `api.ts`: every call goes through `/api`, with an access code when deployed
-- `api/[...path].ts`: Vercel function that adds the backend secret server-side (needs ACCESS_CODE, AGENT_SHARED_SECRET, BACKEND_URL)
-- A Vite proxy adds the shared secret, so it never reaches the browser
+**Backend** (`backend/`, FastAPI)
 
-## API (all need the `x-api-key` secret)
-- `POST /v1/chat/completions`: what ElevenLabs calls (OpenAI format, streaming)
-- `POST /chat`: the same logic for typed tests
-- `GET /opener/{id}`: first line of a call (`?proactive=true` for check-ins)
-- `GET /checkin/{id}`: is a check-in pending
-- `POST /activity/{id}`: a person is here (resets the silence timer, ends do-not-disturb)
-- `GET /dashboard/{id}`: status, today's facts, alerts
-- `GET /setup/{id}`, `POST /setup/{id}`: the family's setup. Saving replaces the family's notes and makes the companion introduce itself on the next call
-- `POST /family/{id}/message`, `GET /family/{id}/messages`: a note from a family member. The companion says it once at the start of the next call (the opener) and keeps it as a memory
-- `GET /family/{id}/summary`: a short plain note about today, written only from what was recorded (cached 2 minutes)
-- `GET/POST /family/{id}/consent`: who confirmed, and on what basis (the person agreed, or legal authority)
-- `POST /family/{id}/pause`: nothing saved, no alerts, no check-in calls
-- `POST /family/{id}/erase` with `{"confirm":"DELETE"}`: deletes what the companion learned, alerts and messages. The family's setup stays
-- `GET /family/{id}/privacy`, `POST /family/{id}/retention`, `GET /family/{id}/export`: overview, how long data is kept (default 365 days, purged hourly), and a downloadable copy (no embeddings, no code hashes)
-- `POST /family/{id}/members`, `POST /family/{id}/members/{mid}/revoke`, `POST /family/verify`: individual family codes (shown once, only an HMAC is stored), and the check the website's proxy calls (10 wrong codes per client in 15 minutes locks that client out)
-- `POST /family/{id}/documents` (PDF as base64, up to 3 MB), `GET /family/{id}/documents`, `GET /family/{id}/documents/{did}`, `POST /family/{id}/documents/{did}/facts/{fid}` (approve or reject), `POST /family/{id}/documents/{did}/delete`: medical documents with sources. A forced tool call (`record_findings`, strict schema) extracts findings; code checks every quote against the page, and an unverified finding cannot be approved. Only approved medicines, appointments, instructions and contacts become companion memories (`source='document'`), cited by name and date. Diagnoses and test scores are family records the companion never says. Dosing questions get a fixed reply (`intents.asks_dose_advice`)
-- `GET /family/{id}/notify`, `POST /family/{id}/notify/link|words|test`, `POST /family/{id}/notify/{tid}/remove`, `POST /telegram/webhook`: phone alerts through Telegram. A family member opens a one-time link (24 hours, single use) and presses Start. The webhook is checked by Telegram's own secret header. Messages carry no health words unless the owner turns that on. Pacing in `notify.py`: alerts in one 20 second burst become one message, the same kind does not repeat for 30 minutes, at most 4 messages an hour per person, one reminder if a serious alert is still open after 20 minutes, and a message to the others when someone marks an alert handled. Plain inactivity never messages
-- **Family to the person, through Telegram:** a connected family member types a message to the bot. `notify.relay` stores it as a family message and calls `family.ring`, which sets `patient:{id}:checkin_pending` to `message` (not while paused or after good night). The app's check-in poll sees `reason: message` and starts a call; `/opener?proactive=true&reason=message` opens with "Hello {name}. {who} asked me to tell you: ..." and clears the flag once the last waiting message is taken. Text only, 300 characters, 10 messages an hour per chat. Voice notes are refused with a clear reply
-- **Medicine reminders** (`reminders.py`): each distinct medicine time in the setup has a Valkey key that expires at its next occurrence. The existing key-expiry listener handles `patient:{id}:remind:{HHMM}`: it sets the check-in flag to `reminder`, and `/opener?proactive=true&reason=reminder` says the time, the medicine, and the approved document's own words, then asks if they took it. It never records a dose as taken. 30 minutes later `patient:{id}:remindcheck:{HHMM}` expires; if the person said nothing about a medicine, the family gets a `missed_medication` alert worded as "no confirmation". Skipped while paused or after good night
-- **Evening digest** (`notify.digest_once`): 20:00 patient time, one Telegram message per connected person. Counts only by default; the summary text only if the owner turned words on. Says so plainly when nothing was recorded
-- **Location, limited** (`location.py`, `/where`): `POST /location/{id}` from a phone page that is open and sharing, `POST /location/{id}/home`, `/stop`. Only the latest position is kept. Outside the safe area for 5 minutes sends one alert with a map link (cooldown 2 hours). A web page cannot track in the background, so a closed page reads "not sharing", never a guess
-- `GET /inspect/{id}`: Valkey keys and silence timer, recent turns, Postgres count and recent facts, the live event feed
-- `POST /alerts/{id}/{alert_id}/resolve`: mark handled
+| File | What it does |
+|---|---|
+| `main.py` | The app, the OpenAI-compatible route ElevenLabs calls, the reply logic, startup and background loops |
+| `prompt.py` | The companion's instructions and safety rules |
+| `working_memory.py` | Valkey: recent turns, mood, timers, the event log for the inspector |
+| `episodic_memory.py`, `memory.py`, `embeddings.py` | Postgres and pgvector: save and search memories, build the reply context |
+| `learning.py` | After a pause, extracts facts and concerns from what was said |
+| `intents.py` | "Tell my family" detection, good night, the promise guard, the dosing-question guard |
+| `alerts.py`, `notify.py` | Alerts with severity and de-duplication, Telegram delivery with pacing, the digest, family messages by Telegram |
+| `triggers.py`, `reminders.py` | The Valkey key-expiry listener, medicine reminders |
+| `documents.py` | Medical documents: forced tool call, quote verification, approval |
+| `family.py` | Messages, summary, consent, pause, erase, export, retention, roles, audit |
+| `location.py` | Optional location sharing and the safe area |
+| `opener.py`, `llm.py`, `db.py`, `textutil.py`, `config.py` | The first line of a call, Claude with an OpenAI fallback, the connection pool, helpers, settings |
+| `schema.sql`, `modal_app.py`, `create_agent.py` | Tables, the Modal deployment, the voice agent setup |
 
-## Database
-- `patients`: name, timezone, `profile` (the diagnosis, always in the prompt, never a memory)
-- `memories`: fact, category, embedding, `source` (`person` or `family`). Family notes are background only, never treated as something said or done today
-- `alerts`: kind, severity, the words that caused it, handled or not
+**Frontend** (`frontend/`, React, Vite, Tailwind), plus the Vercel proxy in `frontend/api/proxy.ts`. The proxy adds the shared secret on the server, checks the access code and the role, and forwards only the allowed routes.
 
-## Alerts
-| Kind | Severity | When |
-|---|---|---|
-| family_notification_request | high | asked for the family to be told |
-| distress | high | clearly frightened or in pain |
-| missed_medication | high | says a dose was skipped |
-| confusion | medium | clearly disoriented |
-| no_response | medium | a check-in call was not answered |
-| inactivity | normal | silent past the timer |
+| Screen | Route |
+|---|---|
+| Slide deck | `/` |
+| Live demo: companion, memory inspector, typing box | `/demo` |
+| The companion alone (what the Mac app opens) | `/app` |
+| Family portal | `/caregiver` |
+| Family setup | `/setup` |
+| Medical documents | `/documents` |
+| Privacy and data | `/privacy` |
+| Location sharing (for a phone) | `/where` |
 
-Portal banner: red if any high alert is open, yellow if a check-in is pending or a recent alert is open, green otherwise.
+**Other:** `desktop/` is the Mac menu bar app (Electron), `samples/` holds the fictional sample documents, `DEMO.md` is the demo script, and `BRIEF.md` is the original brief.
 
-## Safety rules in the code, not just the prompt
-- It confirms a dose only if you told it today. Otherwise it asks. A family-entered medicine time means a dose is due, never taken.
-- It never asks you to remember or think back.
-- It cannot call anyone. It leaves a note on the portal, and only after you agree.
-- An unrequested promise to notify is replaced with a question.
-- Silence ("...") never reaches the model and never produces alarming speech.
+## API at a glance
+
+All backend routes need the shared secret header. The website never exposes it: its proxy adds it.
+
+| Group | Routes |
+|---|---|
+| Voice | `POST /v1/chat/completions` (what ElevenLabs calls), `POST /chat` (typed), `GET /opener/{id}`, `GET /checkin/{id}`, `POST /activity/{id}` |
+| Portal | `GET /dashboard/{id}`, `GET /inspect/{id}`, `POST /alerts/{id}/{alert}/resolve`, `GET` and `POST /setup/{id}` |
+| Family | `/family/{id}/message`, `/messages`, `/summary`, `/consent`, `/pause`, `/erase`, `/privacy`, `/retention`, `/export`, `/members` |
+| Documents | `/family/{id}/documents` and its review, approve and delete routes |
+| Phone alerts | `/family/{id}/notify` and its link, words, test and remove routes, and `POST /telegram/webhook` |
+| Location | `/location/{id}`, `/location/{id}/home`, `/location/{id}/stop` |
 
 ## Known limits
-- "Notify family" only writes to the portal. No push, SMS, or email yet.
-- The tunnel URL changes each restart, and the agent must be updated.
-- No sensors: "silence" means not talking to the companion.
-- Alerts and facts come from model judgment, so expect occasional false alarms or misses.
-- One patient (id 1). Patient 99 is a test patient. Never test on patient 1 while a person is using it.
-- ElevenLabs free tier credits ran out on 2026-10-21. Needs sponsor credits or an upgrade.
-- Every key passed through chat during the build. Rotate them after the hackathon.
 
-## Production (24/7)
-- Backend: Modal app `elder-companion` (`backend/modal_app.py`), one always-on container in the EU, next to the Aiven databases in Frankfurt. Secrets live in the Modal secret `elder-companion`.
-- Frontend: Vercel project `elder-companion`. Settings on Vercel: `ACCESS_CODE`, `AGENT_SHARED_SECRET`, `BACKEND_URL`. The `/api` function adds the secret server-side.
-- The ElevenLabs agent's custom LLM URL is the Modal address plus `/v1`.
-- Postgres goes through one shared pool (`backend/db.py`). A fresh connection to Aiven cost about a second, and a reply used to open four.
-- Do not run the local backend at the same time as Modal: both would listen for silence.
+- One real user so far. No clinical validation and no family pilot.
+- Voice depends on a device being open. If the Mac sleeps or the page is closed, there is no spoken reply, no reminder call and no check-in call, and a plain "quiet for a while" notice does not buzz a phone.
+- The silence timer is 30 seconds in demo mode. Real use needs hours.
+- Location is foreground only. Documents must be text PDFs. Telegram messages are text only.
+- Alerts and extracted facts come from model judgment, so a false alarm or a miss can happen. The model sometimes uses a pronoun for a named person despite a rule, and sometimes offers to leave a note when it does not need to.
+- One shared owner code protects the deployed site until real accounts exist. Use a long one.
+- Deleting data here cannot delete ElevenLabs's own call transcripts.
+- One always-on container, with no uptime monitoring yet.
 
-## Sample documents
-`samples/make_samples.py` writes two FICTIONAL, watermarked PDFs (a memory clinic letter and a prescription) for demos: `python samples/make_samples.py --name Mugesh`. The clinic, doctor and patient are made up. The scripted flow: upload both, approve the medicine and the appointment, then ask the companion "What medicine am I supposed to take in the evening?"
+## The future
 
-## Access, privacy and EU rules
-- The Vercel function `frontend/api/proxy.ts` runs in Frankfurt. It checks the access code, then forwards only what that role may use. Owner: everything. Family member (own code): read the portal, mark alerts handled, leave messages, for their one person. It adds the shared secret and an `x-actor` name that the audit log records.
-- Not legal advice, not certified. GDPR (health data is special category), the EU AI Act (it says it is an AI) and medical device rules all touch this product; the stated purpose stays companionship and memory support, with no diagnosis or treatment advice.
-- Still to do outside code: a DPIA (GDPR Art. 35), processor agreements (Aiven, ElevenLabs, Anthropic, OpenAI, Modal, Vercel), legal review (basis for health data, capacity to consent, French health data hosting rule).
-- Known gaps: deleting here cannot delete ElevenLabs's own call transcripts; the model sometimes uses a pronoun for a named person despite the rule.
+**Next, weeks**
+- A **"companion is offline" alert**: the app sends a quiet signal each minute, and the family hears once if it stops. This closes the biggest honest gap.
+- **Real accounts** and several families, replacing the shared owner code.
+- **A native phone app** with background location, push notifications that can wake the companion, and hands-free voice. This is also the real answer to wandering.
+- **Scanned documents** through Claude's PDF reading, and **"questions for the doctor"**, a cited list built from approved documents and recent notes.
+- **More ways to reach the family:** SMS or email, and an escalation chain ("if nobody responds in 15 minutes, tell the next person").
+- Reminder polish: snooze, per-medicine confirmation, and quiet hours.
 
-## Mac app (menu bar)
-`desktop/` is an Electron app that holds the companion in a small floating window. It loads the live site, so site updates reach it without reinstalling.
-- Menu bar icon, no Dock icon. A dot beside the icon shows only while the microphone is open.
-- Global shortcut Cmd+Shift+Space from any app: brings up the window without taking keyboard focus, then starts the call or switches the mic on and off.
-- When the companion calls after a silence, the window comes up by itself.
-- Starts at login the first time (switch in the menu: right-click the icon).
-- Build and install: `cd desktop && npm install && npm run build`, then `codesign --force --deep --sign - "dist/mac-arm64/Memory Lane.app"` and copy it to `~/Applications`. Not notarized, so it only runs on the Mac that built it.
+**Then, months**
+- **A pilot** with a few real families and a clinician or care-home partner, to learn whether people use it, whether it is safe, and what a person-day of voice really costs.
+- **Compliance work:** the impact assessment, processor agreements, legal review, and a hosting check.
+- A **signed and notarized** desktop app, uptime monitoring, French language support, and an accessibility review.
+- **The family's own voice:** a voice note from a relative, played on the person's device. It needs recording consent and storage, so it comes after the legal review.
 
-## Run it locally
-```
-backend:   cd backend && ../.venv/bin/uvicorn main:app --port 8000
-frontend:  cd frontend && npm run dev            # port 4340
-tunnel:    cloudflared tunnel --url http://localhost:8000
-agent:     cd backend && ../.venv/bin/python create_agent.py <tunnel-url>   # or update the existing agent
-```
-Settings live in `.env` (see `.env.example`). `INACTIVITY_SECONDS=30` for demos, `14400` for real use.
-Demo script: `DEMO.md`. Conversation transcripts: `transcripts/`.
+**Later**
+- A version for **care homes and home-care providers**, where the family-alert and documentation side matters most.
+- **Clinical partnership and evaluation.** If it ever needs to detect decline or influence treatment, that is a medical device under EU rules (CE marking and clinical evidence), and should only be done with a clinical partner leading it.
+
+**Not planned:** diagnosing, advising on treatment, or claiming a clinical benefit.
+
+## Notes for the next person
+
+- Keys pasted into chats or terminals during the build should be **rotated** before anyone else uses this: the database URIs, the Anthropic, OpenAI and ElevenLabs keys, the Modal token, and the Telegram bot token (BotFather `/revoke`).
+- Never test on the real patient (id 1) while someone may be using it. Patient 99 is the test patient. Clean it afterwards.
+- Do not redeploy the backend right before a demo.
+- Style: plain, short sentences. No lists in spoken replies. No invented facts.

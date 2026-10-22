@@ -1,0 +1,13 @@
+# Backend dependencies. The same pins are used by the Modal image in modal_app.py.
+anthropic==2.0.0
+fastapi==0.158.1
+httpx==0.28.1
+pgvector==0.5.1
+psycopg[binary,pool]==3.3.6
+pydantic==2.14.1
+pypdf==6.21.2
+python-dotenv==1.2.4
+redis==8.1.0
+uvicorn==0.54.0
+# only to make the fictional sample documents (samples/make_samples.py)
+reportlab
