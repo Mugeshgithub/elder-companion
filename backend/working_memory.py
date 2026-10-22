@@ -16,6 +16,7 @@ r = redis.from_url(
 )
 
 MAX_TURNS = 20
+TURN_MEMORY_SECONDS = 30 * 60  # working memory is short: an old conversation must not steer a new one
 
 
 def _k(patient_id: int, name: str) -> str:
@@ -26,12 +27,13 @@ async def add_turn(patient_id: int, role: str, text: str) -> None:
     key = _k(patient_id, "turns")
     await r.rpush(key, json.dumps({"role": role, "text": text, "ts": time.time()}))
     await r.ltrim(key, -MAX_TURNS, -1)
-    await r.expire(key, 24 * 3600)
+    await r.expire(key, TURN_MEMORY_SECONDS)
 
 
 async def recent_turns(patient_id: int, n: int = 10) -> list[dict]:
     raw = await r.lrange(_k(patient_id, "turns"), -n, -1)
-    return [json.loads(x) for x in raw]
+    cutoff = time.time() - TURN_MEMORY_SECONDS
+    return [t for t in (json.loads(x) for x in raw) if t["ts"] >= cutoff]
 
 
 async def set_mood(patient_id: int, mood: str) -> None:
