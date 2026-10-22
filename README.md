@@ -111,6 +111,14 @@ Portal banner: red if any high alert is open, yellow if a check-in is pending or
 - Postgres goes through one shared pool (`backend/db.py`). A fresh connection to Aiven cost about a second, and a reply used to open four.
 - Do not run the local backend at the same time as Modal: both would listen for silence.
 
+## Mac app (menu bar)
+`desktop/` is an Electron app that holds the companion in a small floating window. It loads the live site, so site updates reach it without reinstalling.
+- Menu bar icon, no Dock icon. A dot beside the icon shows only while the microphone is open.
+- Global shortcut Cmd+Shift+Space from any app: brings up the window without taking keyboard focus, then starts the call or switches the mic on and off.
+- When the companion calls after a silence, the window comes up by itself.
+- Starts at login the first time (switch in the menu: right-click the icon).
+- Build and install: `cd desktop && npm install && npm run build`, then `codesign --force --deep --sign - "dist/mac-arm64/Memory Lane.app"` and copy it to `~/Applications`. Not notarized, so it only runs on the Mac that built it.
+
 ## Run it locally
 ```
 backend:   cd backend && ../.venv/bin/uvicorn main:app --port 8000

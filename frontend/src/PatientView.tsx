@@ -33,7 +33,8 @@ export default function PatientView() {
 
   const [now, setNow] = useState(new Date());
   const [name, setName] = useState("");
-  const [armed, setArmed] = useState(false); // browsers need one touch before audio and mic work
+  // browsers need one touch before audio and mic work; the Mac app is allowed to skip that
+  const [armed, setArmed] = useState(() => Boolean(window.memoryLane?.desktop));
   const lastEnded = useRef(0);
   const wasConnected = useRef(false);
   const swell = useRef<HTMLDivElement>(null);
@@ -120,6 +121,7 @@ export default function PatientView() {
   const begin = async (proactive = false) => {
     if (starting.current) return;
     starting.current = true;
+    if (proactive) window.memoryLane?.surface(); // the companion is calling: bring the Mac app's window up
     // only a person starting the call counts as activity; an unanswered check-in must not re-arm the timer
     if (!proactive) api(`/activity/${PATIENT_ID}`, { method: "POST" }).catch(() => {});
     let line = "";
@@ -135,6 +137,28 @@ export default function PatientView() {
     });
     starting.current = false;
   };
+
+  // The Mac app's global shortcut: from any app, start the call, or switch the mic on and off.
+  useEffect(() => {
+    const onTalk = () => {
+      if (connected) {
+        if (!hold) return;
+        if (pressing) release();
+        else press();
+      } else if (!connecting) {
+        setArmed(true);
+        begin();
+      }
+    };
+    window.addEventListener("ml-talk", onTalk);
+    return () => window.removeEventListener("ml-talk", onTalk);
+  });
+
+  // A dot in the Mac menu bar shows whenever the microphone is open.
+  const micOpen = connected && (!hold || pressing);
+  useEffect(() => {
+    window.memoryLane?.mic(micOpen);
+  }, [micOpen]);
 
   // Proactive check-in: the backend raises a flag when the person has been quiet too long.
   useEffect(() => {
