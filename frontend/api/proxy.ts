@@ -29,7 +29,7 @@ const OWNER = [
 const MEMBER = [/^dashboard\/\d+$/, /^alerts\/\d+\/\d+\/resolve$/, /^family\/\d+\/(message|messages|summary)$/];
 
 type Who = { role: "owner" | "member"; name: string; patientId?: number };
-const known = new Map<string, { who: Who; until: number }>(); // a code that just checked out is trusted for a minute
+const known = new Map<string, { who: Who; until: number }>(); // a code that just checked out is trusted for five minutes
 
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -43,13 +43,13 @@ async function authenticate(code: string, client: string, backend: string, secre
     headers: { "x-api-key": secret, "content-type": "application/json" },
     // the backend counts wrong codes per client address, so guessing is slowed down
     body: JSON.stringify({ code, client, master: code === owner }),
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(20000),
   });
   if (res.status === 429) return json({ detail: "too many attempts" }, 429);
   if (!res.ok) return json({ detail: "unauthorized" }, 401);
   const d = await res.json();
   const who: Who = { role: d.role, name: d.name, patientId: d.patient_id };
-  known.set(code, { who, until: Date.now() + 60_000 });
+  known.set(code, { who, until: Date.now() + 5 * 60_000 });
   return who;
 }
 

@@ -124,7 +124,7 @@ export default function Inspector() {
         })
         .catch(() => setOffline(true));
     load();
-    const t = setInterval(load, 1000);
+    const t = setInterval(load, 2000);
     return () => clearInterval(t);
   }, []);
 

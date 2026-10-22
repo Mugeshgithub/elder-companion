@@ -41,6 +41,8 @@ app = modal.App("elder-companion", image=image)
 
 @app.function(
     secrets=[modal.Secret.from_name("elder-companion")],
+    cpu=2.0,  # the default is a fraction of a core, which queued requests for seconds under the live demo's polling
+    memory=1024,
     region="eu",  # next to the Aiven databases in Frankfurt: every query is a short hop instead of an ocean
     min_containers=1,  # keep the Valkey silence listener alive
     max_containers=1,  # and never run two listeners
