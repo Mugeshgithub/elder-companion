@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useConversationControls, useConversationMode, useConversationStatus } from "@elevenlabs/react";
+import {
+  useConversationControls,
+  useConversationInput,
+  useConversationMode,
+  useConversationStatus,
+} from "@elevenlabs/react";
 import { api } from "./api";
 import { AGENT_ID, CHECKIN_COOLDOWN_MS, PATIENT_ID } from "./config";
 
@@ -12,6 +17,19 @@ export default function PatientView() {
   const { startSession, endSession, getInputVolume, getOutputVolume } = useConversationControls();
   const { status } = useConversationStatus();
   const { isSpeaking } = useConversationMode();
+  const { setMuted } = useConversationInput();
+
+  // Hold to talk is the default: the mic stays muted unless the orb or the space bar is held,
+  // so voices and noise in the room never turn into words the person did not say.
+  const [hold, setHold] = useState(() => {
+    try {
+      return localStorage.getItem("ec-hold") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const [pressing, setPressing] = useState(false);
+  const releaseTimer = useRef<number | undefined>(undefined);
 
   const [now, setNow] = useState(new Date());
   const [name, setName] = useState("");
@@ -36,6 +54,52 @@ export default function PatientView() {
     if (wasConnected.current && !connected && !connecting) lastEnded.current = Date.now();
     wasConnected.current = connected;
   }, [connected, connecting]);
+
+  const toggleHold = () =>
+    setHold((h) => {
+      try {
+        localStorage.setItem("ec-hold", h ? "0" : "1");
+      } catch {
+        /* private window: the choice just is not remembered */
+      }
+      return !h;
+    });
+
+  // The mic stays open for a moment after release, so the last word is not clipped.
+  const press = () => {
+    window.clearTimeout(releaseTimer.current);
+    setPressing(true);
+  };
+  const release = () => {
+    window.clearTimeout(releaseTimer.current);
+    releaseTimer.current = window.setTimeout(() => setPressing(false), 700);
+  };
+
+  useEffect(() => {
+    if (connected) setMuted(hold && !pressing);
+  }, [connected, hold, pressing, setMuted]);
+
+  useEffect(() => {
+    if (!connected) setPressing(false);
+  }, [connected]);
+
+  useEffect(() => {
+    if (!hold || !connected) return;
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat) return;
+      e.preventDefault();
+      press();
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") release();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [hold, connected]);
 
   // The orb follows the live voice: yours while you talk, the companion's while it talks.
   // It writes a CSS variable straight to the element, so it never re-renders React 60 times a second.
@@ -89,16 +153,20 @@ export default function PatientView() {
 
   const onTouch = () => {
     if (!armed) setArmed(true);
-    if (connected || connecting) endSession();
-    else begin();
+    if (connected || connecting) {
+      if (!hold) endSession(); // in hold mode the orb is the talk button, and "End call" ends it
+    } else begin();
   };
 
+  const micOff = connected && hold && !pressing;
   const label = connecting
     ? "One moment"
     : connected
       ? isSpeaking
         ? "Speaking"
-        : "Listening"
+        : micOff
+          ? "Hold to talk"
+          : "Listening"
       : armed
         ? "Here with you"
         : "Click to begin";
@@ -119,6 +187,35 @@ export default function PatientView() {
           aria-hidden
           className={`h-3 w-3 rounded-full ${connected ? "bg-emerald-300" : "bg-emerald-300/40"}`}
         />
+        {connected || connecting ? (
+          hold ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                endSession();
+              }}
+              className="min-h-9 rounded-full border border-white/30 px-4 text-base"
+            >
+              End call
+            </button>
+          ) : (
+            <span />
+          )
+        ) : (
+          <button
+            type="button"
+            aria-pressed={hold}
+            title="Hold to talk keeps the microphone off until you hold the orb or the space bar"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleHold();
+            }}
+            className="min-h-9 rounded-full border border-white/30 px-4 text-base"
+          >
+            {hold ? "Hold to talk" : "Hands-free"}
+          </button>
+        )}
         <time>{now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
       </header>
 
@@ -129,7 +226,14 @@ export default function PatientView() {
         </h1>
 
         {/* fixed box, so the swell grows the glow without pushing the greeting or the label */}
-        <div ref={swell} className="orb-swell grid place-items-center h-[min(55vw,38dvh,20rem)] w-[min(55vw,38dvh,20rem)]">
+        <div
+          ref={swell}
+          onPointerDown={hold && connected ? press : undefined}
+          onPointerUp={hold && connected ? release : undefined}
+          onPointerLeave={hold && connected ? release : undefined}
+          onPointerCancel={hold && connected ? release : undefined}
+          className={`orb-swell grid place-items-center h-[min(55vw,38dvh,20rem)] w-[min(55vw,38dvh,20rem)] transition-opacity duration-300 ${micOff && !isSpeaking ? "opacity-60" : ""}`}
+        >
           <div aria-hidden className={`orb rounded-full bg-radial ${orb} h-full w-full`} />
         </div>
 
