@@ -39,6 +39,39 @@ const toBase64 = (f: File) =>
     r.readAsDataURL(f);
   });
 
+function FactCard({ f, busy, onReview }: { f: Fact; busy: boolean; onReview: (id: number, action: "approve" | "reject") => void }) {
+  const tone = f.status === "approved" ? "border-green-600 bg-green-50" : f.status === "rejected" ? "border-neutral-200 bg-neutral-50 text-neutral-500" : "border-neutral-300";
+  return (
+    <li className={`rounded-xl border p-3 ${tone}`}>
+      <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
+        <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-white">{KIND[f.kind] ?? f.kind}</span>
+        <span className="text-neutral-600">Page {f.page}</span>
+      </div>
+      <p className="mt-2 text-lg font-semibold leading-snug">{f.summary}</p>
+      <p className="mt-2 text-sm font-semibold text-neutral-600">The document says:</p>
+      <blockquote className="border-l-4 border-neutral-300 pl-3 text-base italic text-neutral-700 break-words">&ldquo;{f.quote}&rdquo;</blockquote>
+      {!f.verified && (
+        <p className="mt-2 rounded-lg bg-red-100 px-3 py-2 text-base font-medium text-neutral-900">
+          These exact words were not found on the page, so this cannot be approved.
+        </p>
+      )}
+      {f.conflict && <p className="mt-2 rounded-lg bg-yellow-100 px-3 py-2 text-base font-medium">{f.conflict}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {f.status !== "approved" && (
+          <button onClick={() => onReview(f.id, "approve")} disabled={busy || !f.verified} className={`${button} bg-green-700 text-white`}>Approve</button>
+        )}
+        {f.status !== "rejected" && (
+          <button onClick={() => onReview(f.id, "reject")} disabled={busy} className={`${button} border border-neutral-400`}>
+            {f.status === "approved" ? "Withdraw" : "Reject"}
+          </button>
+        )}
+        {f.status === "approved" && <span className="text-sm font-semibold text-green-800">Approved by {f.reviewed_by}</span>}
+        {f.status === "rejected" && <span className="text-sm font-semibold">Rejected</span>}
+      </div>
+    </li>
+  );
+}
+
 export default function Documents() {
   const [role, setRole] = useState<"owner" | "member" | null>(null);
   const [docs, setDocs] = useState<Doc[] | null>(null);
@@ -120,6 +153,20 @@ export default function Documents() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action }),
       });
+      if (!r.ok) throw new Error(String(r.status));
+      await Promise.all([loadDetail(open), loadList()]);
+    } catch {
+      setNote("That did not work. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveAll = async () => {
+    if (!open) return;
+    setBusy(true);
+    try {
+      const r = await api(`/family/${PID}/documents/${open}/approve-speakable`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
       if (!r.ok) throw new Error(String(r.status));
       await Promise.all([loadDetail(open), loadList()]);
     } catch {
@@ -213,58 +260,62 @@ export default function Documents() {
               </ul>
             </section>
 
-            {detail && open === detail.id && (
-              <section className="rounded-2xl border border-neutral-300 bg-white p-4">
-                <h2 className="text-lg font-bold">Review: {detail.filename}</h2>
-                {detail.name_mismatch && (
-                  <p className="mt-2 rounded-lg bg-yellow-100 px-3 py-2 text-base font-medium">
-                    This document names &ldquo;{detail.named_patient}&rdquo;, but this profile is {detail.patient}. Check that it is the right
-                    person before approving anything.
-                  </p>
-                )}
-                {detail.status === "processing" && <p className="mt-2 text-base">Reading the document...</p>}
-                <ul className="mt-3 space-y-3">
-                  {detail.facts.map((f) => (
-                    <li key={f.id} className={`rounded-xl border p-3 ${f.status === "approved" ? "border-green-600 bg-green-50" : f.status === "rejected" ? "border-neutral-200 bg-neutral-50 text-neutral-500" : "border-neutral-300"}`}>
-                      <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
-                        <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-white">{KIND[f.kind] ?? f.kind}</span>
-                        <span className="text-neutral-600">Page {f.page}</span>
-                        {!f.companion_can_say && <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-neutral-800">Family record only</span>}
-                      </div>
-                      <p className="mt-2 text-lg font-semibold leading-snug">{f.summary}</p>
-                      <blockquote className="mt-2 border-l-4 border-neutral-300 pl-3 text-base italic text-neutral-700 break-words">
-                        &ldquo;{f.quote}&rdquo;
-                      </blockquote>
-                      {!f.verified && (
-                        <p className="mt-2 rounded-lg bg-red-100 px-3 py-2 text-base font-medium text-neutral-900">
-                          These exact words were not found on the page, so this cannot be approved.
-                        </p>
-                      )}
-                      {f.conflict && <p className="mt-2 rounded-lg bg-yellow-100 px-3 py-2 text-base font-medium">{f.conflict}</p>}
-                      {!f.companion_can_say && f.status === "pending" && (
-                        <p className="mt-2 text-sm text-neutral-600">If approved, this is kept for the family. The companion will not say it.</p>
-                      )}
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        {f.status !== "approved" && (
-                          <button onClick={() => review(f.id, "approve")} disabled={busy || !f.verified} className={`${button} bg-green-700 text-white`}>Approve</button>
-                        )}
-                        {f.status !== "rejected" && (
-                          <button onClick={() => review(f.id, "reject")} disabled={busy} className={`${button} border border-neutral-400`}>
-                            {f.status === "approved" ? "Withdraw" : "Reject"}
-                          </button>
-                        )}
-                        {f.status === "approved" && (
-                          <span className="text-sm font-semibold text-green-800">
-                            Approved by {f.reviewed_by}{f.companion_can_say ? ". The companion can say this." : ". Family record only."}
-                          </span>
-                        )}
-                        {f.status === "rejected" && <span className="text-sm font-semibold">Rejected</span>}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+            {detail && open === detail.id && (() => {
+              const say = detail.facts.filter((f) => f.companion_can_say);
+              const record = detail.facts.filter((f) => !f.companion_can_say);
+              const waiting = say.filter((f) => f.status === "pending" && f.verified).length;
+              return (
+                <section className="rounded-2xl border border-neutral-300 bg-white p-4">
+                  <h2 className="text-lg font-bold">Review: {detail.filename}</h2>
+                  {detail.name_mismatch && (
+                    <p className="mt-2 rounded-lg bg-yellow-100 px-3 py-2 text-base font-medium">
+                      This document names &ldquo;{detail.named_patient}&rdquo;, but this profile is {detail.patient}. Check that it is the right
+                      person before approving anything.
+                    </p>
+                  )}
+                  {detail.status === "processing" && <p className="mt-2 text-base">Reading the document...</p>}
+
+                  <div className="mt-3 rounded-xl bg-neutral-100 p-4 text-base text-neutral-800">
+                    <p className="font-semibold text-neutral-900">How to review</p>
+                    <ol className="mt-1 list-decimal space-y-1 pl-5">
+                      <li>Read each item, and the exact words from the document under it.</li>
+                      <li>If it matches the document, press Approve. If it does not, press Reject.</li>
+                      <li>
+                        Only the items under &ldquo;For the companion&rdquo; can ever be said to {detail.patient}, and always with the document
+                        named. Nothing is used until you approve it.
+                      </li>
+                    </ol>
+                  </div>
+
+                  <h3 className="mt-5 text-lg font-bold">For the companion ({say.length})</h3>
+                  <p className="text-base text-neutral-600">Medicines, appointments and instructions.</p>
+                  {waiting > 0 && (
+                    <div className="mt-2 rounded-xl border border-green-700 bg-green-50 p-3">
+                      <button onClick={approveAll} disabled={busy} className={`${button} w-full bg-green-700 text-white`}>
+                        Approve all {waiting} that match the document
+                      </button>
+                      <p className="mt-2 text-sm text-neutral-700">Check them first. You can withdraw any one later.</p>
+                    </div>
+                  )}
+                  <ul className="mt-3 space-y-3">
+                    {say.length === 0 && <li className="text-base text-neutral-600">Nothing in this document for the companion to say.</li>}
+                    {say.map((f) => <FactCard key={f.id} f={f} busy={busy} onReview={review} />)}
+                  </ul>
+
+                  {record.length > 0 && (
+                    <details className="mt-5">
+                      <summary className="cursor-pointer text-lg font-bold">Kept for the family only ({record.length})</summary>
+                      <p className="mt-1 text-base text-neutral-600">
+                        Diagnoses, test results and other details. If you approve one it is kept as a record for the family. The companion never says these.
+                      </p>
+                      <ul className="mt-3 space-y-3">
+                        {record.map((f) => <FactCard key={f.id} f={f} busy={busy} onReview={review} />)}
+                      </ul>
+                    </details>
+                  )}
+                </section>
+              );
+            })()}
           </div>
         )}
       </div>

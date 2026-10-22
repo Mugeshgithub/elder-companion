@@ -47,6 +47,7 @@ Rules:
 - Record only what is written. Never infer, never add medical knowledge, never complete a dose or a schedule the document does not state.
 - Every finding must quote the exact words from the page, copied character for character, and give that page number.
 - One finding per medicine, appointment, instruction, test result or stated diagnosis. Keep each summary to one plain sentence.
+- Choose the kind strictly. "medication" is a medicine the document prescribes or continues. "appointment" is a dated visit or arranged contact. "instruction" is ONLY something the document tells the person or their family to DO, such as take, avoid, bring, keep, or report. Symptoms, history, the reason for referral, examination findings, and anything that describes the person are kind "other", never "instruction".
 - For a medicine, fill in name, dose, frequency, timing and duration only if the document states them. Use null for anything it does not state.
 - Record a stated diagnosis as kind "diagnosis_stated", using the document's own words. Do not comment on it.
 - If the page text is not a medical document or is unreadable, return no findings."""
@@ -73,7 +74,8 @@ TOOL = {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "kind": {"type": "string", "enum": ["medication", "appointment", "instruction", "test_result", "diagnosis_stated", "contact", "other"]},
+                        "kind": {"type": "string", "enum": ["medication", "appointment", "instruction", "test_result", "diagnosis_stated", "contact", "other"],
+                                 "description": "instruction means only something to DO. History, symptoms and descriptions of the person are other."},
                         "summary": {"type": "string", "description": "One plain sentence stating what the document says"},
                         "page": {"type": "integer", "description": "1-based page number"},
                         "quote": {"type": "string", "description": "The exact words from that page that support this finding"},
@@ -167,6 +169,8 @@ async def _extract(did: int) -> None:
             rows.append((pid, f.get("kind", "other"), (f.get("summary") or "").strip()[:400],
                          json.dumps(detail) if detail else None, page or int(f.get("page") or 1), quote[:600], page is not None))
         async with db.pool.connection() as conn:
+            # a retry after an interrupted run must not leave two copies of the findings
+            await conn.execute("DELETE FROM document_facts WHERE document_id = %s AND status = 'pending'", (did,))
             for r in rows:
                 await conn.execute(
                     "INSERT INTO document_facts (document_id, patient_id, kind, summary, detail, page, quote, verified) "
@@ -181,6 +185,24 @@ async def _extract(did: int) -> None:
 
 
 _tasks: set[asyncio.Task] = set()
+
+
+def _spawn(did: int) -> None:
+    t = asyncio.create_task(_extract(did))
+    _tasks.add(t)
+    t.add_done_callback(_tasks.discard)
+
+
+async def resume_stuck() -> None:
+    """The reading runs in the background, so a server restart can cut it off. When the server starts, pick up any
+    document still marked as processing. The page text is already stored, so nothing needs uploading again."""
+    await asyncio.sleep(5)
+    async with db.pool.connection() as conn:
+        ids = [r[0] for r in await (await conn.execute(
+            "SELECT id FROM documents WHERE status = 'processing' AND uploaded_at < now() - interval '30 seconds'")).fetchall()]
+    for did in ids:
+        log.info("resuming reading of document %s", did)
+        _spawn(did)
 
 
 class UploadIn(BaseModel):
@@ -216,15 +238,16 @@ async def upload(pid: int, body: UploadIn, request: Request):
             "INSERT INTO documents (patient_id, filename, sha256, pages, uploaded_by) VALUES (%s, %s, %s, %s::jsonb, %s) RETURNING id",
             (pid, body.filename.strip()[:200], sha, json.dumps(pages), actor))).fetchone()
     await family.audit(pid, actor, "document_uploaded", body.filename.strip()[:100])
-    t = asyncio.create_task(_extract(row[0]))
-    _tasks.add(t)
-    t.add_done_callback(_tasks.discard)
+    _spawn(row[0])
     return {"id": row[0], "existing": False}
 
 
 @router.get("/{pid}/documents")
 async def list_documents(pid: int):
     async with db.pool.connection() as conn:
+        await conn.execute(  # never leave a document reading forever
+            "UPDATE documents SET status = 'failed', error = 'Reading was interrupted. Upload it again.' "
+            "WHERE status = 'processing' AND uploaded_at < now() - interval '5 minutes'")
         rows = await (await conn.execute(
             """SELECT d.id, d.filename, d.status, d.error, d.doc_type, d.doc_date, d.author, d.uploaded_by, d.uploaded_at,
                       count(f.id) FILTER (WHERE f.status = 'pending'), count(f.id) FILTER (WHERE f.status = 'approved'),
@@ -334,6 +357,21 @@ async def review_fact(pid: int, did: int, fid: int, body: ReviewIn, request: Req
             "UPDATE document_facts SET status = 'rejected', reviewed_by = %s, reviewed_at = now(), memory_id = NULL WHERE id = %s", (actor, fid))
     await family.audit(pid, actor, "document_fact_rejected", f"{kind}, page {page}")
     return {"status": "rejected"}
+
+
+@router.post("/{pid}/documents/{did}/approve-speakable")
+async def approve_speakable(pid: int, did: int, request: Request):
+    """One click for the common case: approves every still-waiting finding whose quote was verified AND whose kind the
+    companion may say. Diagnoses, scores and anything unverified are left for the family to decide one by one."""
+    async with db.pool.connection() as conn:
+        ids = [r[0] for r in await (await conn.execute(
+            "SELECT id FROM document_facts WHERE document_id = %s AND patient_id = %s AND status = 'pending' AND verified AND kind = ANY(%s) ORDER BY id",
+            (did, pid, list(COMPANION_KINDS)))).fetchall()]
+    done = 0
+    for fid in ids:
+        out = await review_fact(pid, did, fid, ReviewIn(action="approve"), request)
+        done += 0 if isinstance(out, JSONResponse) else 1
+    return {"approved": done}
 
 
 @router.post("/{pid}/documents/{did}/delete")

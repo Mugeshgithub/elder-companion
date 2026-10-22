@@ -69,10 +69,12 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(triggers.listen_for_inactivity(_on_inactive))
     purge = asyncio.create_task(family.purge_loop())
     remind = asyncio.create_task(notify.reminder_loop())
+    resume = asyncio.create_task(documents.resume_stuck())
     yield
     task.cancel()
     purge.cancel()
     remind.cancel()
+    resume.cancel()
     await db.pool.close()
 
 

@@ -21,6 +21,7 @@ const OWNER = [
   /^family\/\d+\/documents\/medicines$/,
   /^family\/\d+\/documents\/\d+$/,
   /^family\/\d+\/documents\/\d+\/delete$/,
+  /^family\/\d+\/documents\/\d+\/approve-speakable$/,
   /^family\/\d+\/documents\/\d+\/facts\/\d+$/,
 ];
 // A family member (their own code) can read the portal, handle alerts, and leave messages. Nothing else.
